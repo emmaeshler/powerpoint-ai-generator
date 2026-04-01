@@ -1,0 +1,179 @@
+# REFACTOR TASK: Add Dynamic Composition Engine to DeckForge
+
+## CONTEXT
+DeckForge generates branded PowerPoint slides from AI prompts using python-pptx. It currently uses a component-based system where Claude selects components (column cards, callout bars, timelines, metric cards, etc.) and a renderer draws each one.
+
+The problem: components size themselves independently and fill available space, resulting in oversized elements with massive empty voids. The slides look like wireframes, not finished presentations.
+
+## THE GOAL
+Add a **composition engine** that sits between Claude's component selection and the final render. It should:
+1. Measure each component's actual content needs
+2. Size components to their content (NEVER stretch to fill)
+3. Arrange components within the slide using consistent spacing rules
+4. Center the overall composition vertically so white space is intentional
+
+## CORE PRINCIPLE
+> Size to content, then center the group. White space should surround the composition, not live inside components.
+
+## ARCHITECTURE
+
+Claude JSON output (components + content)
+        ↓
+  CompositionEngine.compose()
+        ↓
+  1. measure each component → min_height, preferred_height
+  2. allocate vertical space across body zone
+  3. calculate absolute x, y, width, height for every element
+  4. pass positioned layout to renderers
+        ↓
+  Component renderers draw at exact positions (using the positions given, not calculating their own)
+        ↓
+  python-pptx output
+
+## SLIDE CANVAS ZONES (10" x 7.5" slide)
+
+SLIDE_WIDTH = Inches(10)
+SLIDE_HEIGHT = Inches(7.5)
+
+TITLE_ZONE_TOP = Inches(0.4)
+TITLE_ZONE_HEIGHT = Inches(0.9)
+
+BODY_ZONE_TOP = Inches(1.5)
+BODY_ZONE_BOTTOM = Inches(6.6) (adjusts if footer exists)
+
+FOOTER_ZONE_HEIGHT = Inches(0.55) (only if callout bar present)
+
+BRAND_BAR_TOP = Inches(7.0)
+BRAND_BAR_HEIGHT = Inches(0.35)
+
+BODY_LEFT_MARGIN = Inches(0.6)
+BODY_RIGHT_MARGIN = Inches(0.6)
+BODY_USABLE_WIDTH = Inches(8.8)
+
+## WHAT TO BUILD
+
+### 1. Create composition_engine.py
+
+This is a new file. It takes the list of components Claude selected (with their content) and returns a layout dict with absolute pixel positions for every element.
+
+Key class: CompositionEngine with a compose() method.
+
+Flow:
+- Separate components into zones (body vs footer)
+- Calculate available body height (between title zone and brand bar, minus footer if present)
+- Call measure() on each body component to get min_height and preferred_height
+- If total preferred heights fit in available space: center the group vertically with equal padding top and bottom. DO NOT stretch components to fill.
+- If total preferred heights are tight: scale proportionally between min and preferred
+- If total min heights overflow: render at min and flag overflow
+- Return absolute positions (left, top, width, height) for every component
+
+### 2. Add measure() methods to every component renderer
+
+Each component type needs a measure() function that calculates how much vertical space it actually needs based on its content. This is the critical piece — it prevents empty voids.
+
+Measurement rules:
+
+COLUMN CARDS:
+- Find the card with the most bullets (this sets the height for all cards — they should be equal height)
+- line_height = Inches(0.28) per bullet
+- header_height = Inches(0.5) for icon + label bar
+- internal_padding = Inches(0.3) top + bottom inside card
+- min_height = header_height + (max_bullets * line_height) + internal_padding
+- preferred_height = min_height * 1.25
+- Also return card_count so horizontal layout can be calculated
+
+CALLOUT BAR:
+- Fixed height: min = Inches(0.4), preferred = Inches(0.5)
+- This always goes in the footer zone
+
+METRIC CARDS (big number + label):
+- min_height = Inches(1.2)
+- preferred_height = Inches(1.5)
+- Scale slightly if more than 3 metrics
+
+TIMELINE:
+- min_height = Inches(1.5)
+- preferred_height = Inches(2.0)
+- Add Inches(0.3) per phase beyond 4
+
+TEXT BLOCK:
+- Estimate line wrapping: assume ~90 characters per line at standard font size
+- line_height = Inches(0.25)
+- min_height = estimated_lines * line_height + Inches(0.2) padding
+- preferred_height = min_height * 1.2
+
+TABLE:
+- header_row = Inches(0.4)
+- data_row = Inches(0.35) per row
+- min_height = header_row + (num_rows * data_row) + Inches(0.1)
+- preferred_height = min_height * 1.15
+
+TWO COLUMN (text left, visual right or vice versa):
+- Measure each side independently using the rules above
+- Height = max of the two sides
+- preferred_height = max_side * 1.2
+
+DEFAULT (unknown component):
+- min_height = Inches(1.5)
+- preferred_height = Inches(2.0)
+
+### 3. Refactor all component renderers to accept position parameters
+
+Currently renderers calculate their own positions. After this refactor, every renderer's draw() method must accept these parameters from the composition engine:
+
+- left: absolute left position on slide
+- top: absolute top position on slide  
+- width: allocated width
+- height: allocated height
+
+The renderer draws WITHIN these bounds. It does not calculate its own top/left. It does not stretch to fill the slide. It uses the height it is given.
+
+For column cards specifically, the renderer should:
+- Divide the given width by card_count with Inches(0.2) gutters between cards
+- Cap individual card width at Inches(3.2) and center the card group if there is excess width
+- Use the given height for card bodies
+- Place icons INSIDE the card header area, not floating above
+
+For horizontal arrangements (column cards, metric cards), if the total card group is narrower than the given width, CENTER the group horizontally within the given width.
+
+### 4. Update the main render pipeline
+
+Find wherever the current code loops through components and renders them. Replace that with:
+
+1. Pass Claude's component list to CompositionEngine.compose()
+2. Get back the layout dict with positions
+3. Loop through layout['body'] and layout['footer']
+4. For each positioned component, call the appropriate renderer's draw() method with the position parameters
+
+### 5. Vertical centering logic (important)
+
+When total component heights are LESS than available body space (the common case), calculate top padding as:
+
+top_padding = (available_height - total_needed) / 2
+
+Where total_needed = sum of all preferred_heights + gaps between components (Inches(0.2) per gap)
+
+Start the first component at BODY_TOP + top_padding. This centers the entire composition vertically in the body zone.
+
+DO NOT distribute extra space into the components. DO NOT add extra padding between components beyond the standard Inches(0.2) gap. The extra space goes equally above and below the component group.
+
+## VISUAL RULES TO ENFORCE
+
+1. Minimum margin from any content to slide edge: Inches(0.5)
+2. Component gap (vertical space between stacked components): Inches(0.2)
+3. Card gutter (horizontal space between side-by-side cards): Inches(0.2)
+4. Max card width: Inches(3.2) — center the group if cards don't fill the row
+5. Icons should be INSIDE card headers, not floating above as separate elements
+6. All cards in a row must be the same height (determined by the tallest card's content)
+7. Footer callout bar anchors to bottom of body zone, just above brand bar
+8. Title accent line (the colored horizontal rule under the title) should span BODY_USABLE_WIDTH
+
+## WHAT NOT TO CHANGE
+- Don't change Claude's prompt or the component selection logic
+- Don't change brand colors, fonts, or the title rendering
+- Don't change the brand bar (INSIGHT2PROFIT logo + CONFIDENTIAL)
+- Don't change how the .pptx file is created and saved
+- Keep all existing component types working
+
+## TESTING
+After refactoring, generate the same "Strategic Transformation" slide with 3 column cards (Strategy, Execution, Optimization — 3 bullets each) and a callout bar. The cards should be approximately 40% of their current height, vertically centered in the body zone, with the callout bar anchored near the bottom. No empty voids inside the cards.

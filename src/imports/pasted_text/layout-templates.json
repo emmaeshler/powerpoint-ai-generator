@@ -1,0 +1,260 @@
+# REFACTOR TASK: Add User-Configurable Grid Layout System to DeckForge
+
+## CONCEPT
+Instead of Claude deciding where components go on the slide, the USER picks a layout template from a visual menu. Each template defines the grid slots. Claude then fills those slots with the right content based on the prompt.
+
+The flow becomes:
+1. User types their prompt
+2. User picks a layout (or gets a smart default)
+3. Claude sees the layout + prompt, generates content FOR EACH SLOT
+4. Composition engine places components in the grid
+5. Render to .pptx
+
+Implement Option C — smart default with override. Claude suggests a default layout based on the prompt. User can click "Change Layout" and pick a different one. Content reflows into the new layout.
+
+## LAYOUT TEMPLATE REGISTRY
+
+Create a layout_templates.py or layout_templates.json file that defines all available templates. Each template is a named layout with a visual description, a list of named slots, and grid coordinates for each slot.
+
+Template Schema Example:
+{
+  "template_id": "top3-bottom-full",
+  "display_name": "Three Columns + Full Width",
+  "description": "Three equal items across the top, one wide component below",
+  "thumbnail": "grid-3-1.svg",
+  "category": "comparison",
+  "slot_count": 4,
+  "slots": [
+    {
+      "slot_id": "top_left",
+      "label": "Top Left",
+      "grid": {"row": 1, "col": 1, "col_span": 4},
+      "accepts": ["card", "metric", "text_block", "icon_card"],
+      "description": "First of three top items"
+    },
+    {
+      "slot_id": "top_center",
+      "label": "Top Center",
+      "grid": {"row": 1, "col": 5, "col_span": 4},
+      "accepts": ["card", "metric", "text_block", "icon_card"],
+      "description": "Second of three top items"
+    },
+    {
+      "slot_id": "top_right",
+      "label": "Top Right",
+      "grid": {"row": 1, "col": 9, "col_span": 4},
+      "accepts": ["card", "metric", "text_block", "icon_card"],
+      "description": "Third of three top items"
+    },
+    {
+      "slot_id": "bottom_full",
+      "label": "Bottom Section",
+      "grid": {"row": 2, "col": 1, "col_span": 12},
+      "accepts": ["table", "comparison_table", "text_block", "timeline", "callout_bar", "screenshot"],
+      "description": "Full-width bottom area"
+    }
+  ]
+}
+
+## FULL TEMPLATE LIBRARY — Define all of these:
+
+SINGLE REGION:
+template_id: "full"
+display_name: "Full Slide"
+category: "simple"
+slots: [
+  {slot_id: "main", label: "Main Content", grid: {row: 1, col: 1, col_span: 12}, accepts: ["any"]}
+]
+
+TWO REGIONS:
+template_id: "two-equal"
+display_name: "Two Columns"
+category: "comparison"
+slots: [
+  {slot_id: "left", label: "Left", grid: {row: 1, col: 1, col_span: 6}, accepts: ["any"]},
+  {slot_id: "right", label: "Right", grid: {row: 1, col: 7, col_span: 6}, accepts: ["any"]}
+]
+
+template_id: "wide-left"
+display_name: "Wide Left + Sidebar"
+category: "detail"
+slots: [
+  {slot_id: "main", label: "Main", grid: {row: 1, col: 1, col_span: 8}, accepts: ["any"]},
+  {slot_id: "sidebar", label: "Sidebar", grid: {row: 1, col: 9, col_span: 4}, accepts: ["any"]}
+]
+
+template_id: "wide-right"
+display_name: "Sidebar + Wide Right"
+category: "detail"
+slots: [
+  {slot_id: "sidebar", label: "Sidebar", grid: {row: 1, col: 1, col_span: 4}, accepts: ["any"]},
+  {slot_id: "main", label: "Main", grid: {row: 1, col: 5, col_span: 8}, accepts: ["any"]}
+]
+
+template_id: "top-bottom"
+display_name: "Stacked"
+category: "narrative"
+slots: [
+  {slot_id: "top", label: "Top", grid: {row: 1, col: 1, col_span: 12}, accepts: ["any"]},
+  {slot_id: "bottom", label: "Bottom", grid: {row: 2, col: 1, col_span: 12}, accepts: ["any"]}
+]
+
+THREE REGIONS:
+template_id: "three-equal"
+display_name: "Three Columns"
+category: "comparison"
+slots: [
+  {slot_id: "left", label: "Left", grid: {row: 1, col: 1, col_span: 4}, accepts: ["any"]},
+  {slot_id: "center", label: "Center", grid: {row: 1, col: 5, col_span: 4}, accepts: ["any"]},
+  {slot_id: "right", label: "Right", grid: {row: 1, col: 9, col_span: 4}, accepts: ["any"]}
+]
+
+template_id: "top3-bottom-full"
+display_name: "Three Columns + Full Width"
+category: "comparison"
+slots: [
+  {slot_id: "top_left", label: "Top Left", grid: {row: 1, col: 1, col_span: 4}, accepts: ["any"]},
+  {slot_id: "top_center", label: "Top Center", grid: {row: 1, col: 5, col_span: 4}, accepts: ["any"]},
+  {slot_id: "top_right", label: "Top Right", grid: {row: 1, col: 9, col_span: 4}, accepts: ["any"]},
+  {slot_id: "bottom", label: "Bottom", grid: {row: 2, col: 1, col_span: 12}, accepts: ["any"]}
+]
+
+template_id: "top-full-bottom3"
+display_name: "Full Width + Three Columns"
+category: "overview"
+slots: [
+  {slot_id: "top", label: "Top", grid: {row: 1, col: 1, col_span: 12}, accepts: ["any"]},
+  {slot_id: "bottom_left", label: "Bottom Left", grid: {row: 2, col: 1, col_span: 4}, accepts: ["any"]},
+  {slot_id: "bottom_center", label: "Bottom Center", grid: {row: 2, col: 5, col_span: 4}, accepts: ["any"]},
+  {slot_id: "bottom_right", label: "Bottom Right", grid: {row: 2, col: 9, col_span: 4}, accepts: ["any"]}
+]
+
+template_id: "top-full-bottom2"
+display_name: "Full Width + Two Columns"
+category: "overview"
+slots: [
+  {slot_id: "top", label: "Top", grid: {row: 1, col: 1, col_span: 12}, accepts: ["any"]},
+  {slot_id: "bottom_left", label: "Bottom Left", grid: {row: 2, col: 1, col_span: 6}, accepts: ["any"]},
+  {slot_id: "bottom_right", label: "Bottom Right", grid: {row: 2, col: 7, col_span: 6}, accepts: ["any"]}
+]
+
+FOUR REGIONS:
+template_id: "quad"
+display_name: "Four Quadrants"
+category: "dashboard"
+slots: [
+  {slot_id: "top_left", label: "Top Left", grid: {row: 1, col: 1, col_span: 6}, accepts: ["any"]},
+  {slot_id: "top_right", label: "Top Right", grid: {row: 1, col: 7, col_span: 6}, accepts: ["any"]},
+  {slot_id: "bottom_left", label: "Bottom Left", grid: {row: 2, col: 1, col_span: 6}, accepts: ["any"]},
+  {slot_id: "bottom_right", label: "Bottom Right", grid: {row: 2, col: 7, col_span: 6}, accepts: ["any"]}
+]
+
+COMPLEX / ASYMMETRIC:
+template_id: "hero-left-stack-right"
+display_name: "Hero Left + Stacked Right"
+category: "detail"
+slots: [
+  {slot_id: "hero", label: "Hero", grid: {row: 1, col: 1, col_span: 7, row_span: 2}, accepts: ["any"]},
+  {slot_id: "right_top", label: "Right Top", grid: {row: 1, col: 8, col_span: 5}, accepts: ["any"]},
+  {slot_id: "right_bottom", label: "Right Bottom", grid: {row: 2, col: 8, col_span: 5}, accepts: ["any"]}
+]
+
+template_id: "hero-right-stack-left"
+display_name: "Stacked Left + Hero Right"
+category: "detail"
+slots: [
+  {slot_id: "left_top", label: "Left Top", grid: {row: 1, col: 1, col_span: 5}, accepts: ["any"]},
+  {slot_id: "left_bottom", label: "Left Bottom", grid: {row: 2, col: 1, col_span: 5}, accepts: ["any"]},
+  {slot_id: "hero", label: "Hero", grid: {row: 1, col: 6, col_span: 7, row_span: 2}, accepts: ["any"]}
+]
+
+template_id: "top3-bottom2"
+display_name: "Three Top + Two Bottom"
+category: "comparison"
+slots: [
+  {slot_id: "top_left", label: "Top Left", grid: {row: 1, col: 1, col_span: 4}, accepts: ["any"]},
+  {slot_id: "top_center", label: "Top Center", grid: {row: 1, col: 5, col_span: 4}, accepts: ["any"]},
+  {slot_id: "top_right", label: "Top Right", grid: {row: 1, col: 9, col_span: 4}, accepts: ["any"]},
+  {slot_id: "bottom_left", label: "Bottom Left", grid: {row: 2, col: 1, col_span: 6}, accepts: ["any"]},
+  {slot_id: "bottom_right", label: "Bottom Right", grid: {row: 2, col: 7, col_span: 6}, accepts: ["any"]}
+]
+
+## GRID SYSTEM DETAILS
+
+Grid Properties:
+- Max columns: 12 (like Bootstrap — allows halves, thirds, quarters, sixths)
+- Rows: dynamic based on template
+- Column gutter: Inches(0.2)
+- Row gutter: Inches(0.2)
+
+Slide Canvas Zones (10" x 7.5" slide):
+SLIDE_WIDTH = Inches(10)
+SLIDE_HEIGHT = Inches(7.5)
+TITLE_ZONE_TOP = Inches(0.4)
+TITLE_ZONE_HEIGHT = Inches(0.9)
+BODY_ZONE_TOP = Inches(1.5)
+BODY_LEFT = Inches(0.6)
+BODY_USABLE_WIDTH = Inches(8.8)
+BRAND_BAR_TOP = Inches(7.0)
+BRAND_BAR_HEIGHT = Inches(0.35)
+FOOTER_HEIGHT = Inches(0.55)
+COMPONENT_GAP = Inches(0.2)
+
+## COMPOSITION ENGINE
+
+Create or update composition_engine.py. The compose() method now takes a template + slot content instead of a flat component list.
+
+The engine must:
+1. Read the template to get grid coordinates for each slot
+2. Map slot_content into those grid positions
+3. Calculate the 12-column grid positions (left/right edges for each of the 12 columns)
+4. Group components by row
+5. Measure each row's height (tallest component in that row wins, using existing measure() functions)
+6. Allocate vertical space: if total preferred heights fit, CENTER the composition vertically in the body zone. If tight, compress proportionally. If overflow, use min heights.
+7. For row_span > 1 components, extend their height across multiple rows including the gap between rows
+8. Return absolute left, top, width, height for every component
+9. Footer components (callout bars) are NOT in the grid — they anchor to the bottom of the body zone just above the brand bar
+
+CRITICAL RULE: Size components to their content, then center the group vertically. NEVER stretch components to fill available space. White space should surround the composition, not live inside components.
+
+Column position calculation:
+- total_gutters = COLUMN_GUTTER * (12 - 1) = Inches(0.2) * 11 = Inches(2.2)
+- single_col_width = (BODY_USABLE_WIDTH - total_gutters) / 12
+- For a component at col C with col_span S: left = col_positions[C].left, width = col_positions[C+S-1].right - col_positions[C].left (this spans across gutters between columns which is correct)
+
+Row height calculation:
+- For each row, find all components in that row
+- Measure each component using existing measure() functions that calculate min_height and preferred_height based on actual content
+- Row height = max preferred_height of all components in that row
+
+Vertical centering:
+- total_needed = sum of all row preferred_heights + (num_rows - 1) * ROW_GUTTER
+- if total_needed <= available_body_height: top_padding = (available_body_height - total_needed) / 2, start first row at BODY_TOP + top_padding
+- if total_needed > available_body_height: compress proportionally or use min heights
+
+## COMPONENT MEASUREMENT FUNCTIONS
+
+Each component type needs a measure() function. Keep existing ones if they exist, otherwise implement:
+
+COLUMN CARDS: Find card with most bullets. line_height = Inches(0.28) per bullet. header_height = Inches(0.5). internal_padding = Inches(0.3). min_height = header + (max_bullets * line_height) + padding. preferred = min * 1.25.
+
+CALLOUT BAR: min = Inches(0.4), preferred = Inches(0.5). Always footer zone.
+
+METRIC CARDS: min = Inches(1.2), preferred = Inches(1.5).
+
+TIMELINE: min = Inches(1.5), preferred = Inches(2.0). Add Inches(0.3) per phase beyond 4.
+
+TEXT BLOCK: Estimate lines at ~90 chars per line. line_height = Inches(0.25). min = lines * line_height + Inches(0.2). preferred = min * 1.2.
+
+TABLE: header = Inches(0.4), row = Inches(0.35) each. min = header + (rows * row_height) + Inches(0.1). preferred = min * 1.15.
+
+SCREENSHOT/PLACEHOLDER: min = Inches(2.0), preferred = Inches(2.5).
+
+DEFAULT: min = Inches(1.5), preferred = Inches(2.0).
+
+## REFACTOR ALL COMPONENT RENDERERS
+
+Every component renderer's draw() method must accept position parameters from the composition engine: left, top, width, height. The renderer draws WITHIN these bounds. It does NOT calculate its own position. It does NOT stretch to fill the slide.
+
+For components that contain sub-elements (like column_cards which has N cards side by side), the renderer handles the INTERNAL layout within its allocated bounds:
+- column_cards: divide allocated width by card_count with Inches(0.15) gutters, cap card width at Inches(3.2)
