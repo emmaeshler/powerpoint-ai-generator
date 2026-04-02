@@ -341,6 +341,98 @@ app.post('/git/save-override-note', async (req, res) => {
   }
 });
 
+app.get('/git/summary', async (req, res) => {
+  try {
+    const cwd = '/Users/emmaeshler/Documents/Powerpoint-App-main';
+
+    // Get current branch
+    const { stdout: branchOut } = await execAsync('git branch --show-current', { cwd });
+    const branch = branchOut.trim();
+
+    // Get status to check for changes
+    const { stdout: statusOut } = await execAsync('git status --porcelain', { cwd });
+    const hasChanges = statusOut.trim().length > 0;
+
+    if (!hasChanges) {
+      return res.json({
+        branch,
+        hasChanges: false,
+        skills: { added: [], modified: [], removed: [] },
+        components: [],
+        generators: [],
+        other: []
+      });
+    }
+
+    // Get list of changed files
+    const files = statusOut.trim().split('\n').map(line => {
+      const status = line.substring(0, 2);
+      const file = line.substring(3);
+      return { status, file };
+    });
+
+    // Categorize changes
+    const skills = { added: [], modified: [], removed: [] };
+    const components = [];
+    const generators = [];
+    const other = [];
+
+    for (const { status, file } of files) {
+      // Skill files
+      if (file.includes('imports/pasted_text/') && file.endsWith('.md')) {
+        const skillName = path.basename(file, '.md')
+          .replace(/-/g, ' ')
+          .replace(/\b\w/g, l => l.toUpperCase());
+
+        if (status.includes('A') || status.includes('?')) {
+          skills.added.push(skillName);
+        } else if (status.includes('D')) {
+          skills.removed.push(skillName);
+        } else {
+          skills.modified.push(skillName);
+        }
+      }
+      // Skill config
+      else if (file.includes('skillsConfig.ts')) {
+        if (!skills.modified.includes('Skill Configuration')) {
+          skills.modified.push('Skill Configuration');
+        }
+      }
+      // UI Components
+      else if (file.includes('components/') && file.endsWith('.tsx')) {
+        const compName = path.basename(file, '.tsx');
+        components.push(compName);
+      }
+      // Generators/Utils
+      else if (file.includes('utils/') || file.includes('generator')) {
+        const utilName = path.basename(file, path.extname(file));
+        generators.push(utilName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()));
+      }
+      // Other files
+      else {
+        other.push(file);
+      }
+    }
+
+    res.json({
+      branch,
+      hasChanges: true,
+      skills: {
+        added: [...new Set(skills.added)],
+        modified: [...new Set(skills.modified)],
+        removed: [...new Set(skills.removed)]
+      },
+      components: [...new Set(components)],
+      generators: [...new Set(generators)],
+      other: [...new Set(other)]
+    });
+
+  } catch (error) {
+    console.error('Error getting git summary:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`✅ Server is running on http://localhost:${PORT}`);

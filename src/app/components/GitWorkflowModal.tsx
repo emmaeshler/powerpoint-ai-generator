@@ -15,6 +15,15 @@ interface GitWorkflowModalProps {
   onClose: () => void;
 }
 
+interface ChangesSummary {
+  branch: string;
+  hasChanges: boolean;
+  skills: { added: string[]; modified: string[]; removed: string[] };
+  components: string[];
+  generators: string[];
+  other: string[];
+}
+
 export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
   const [currentBranch, setCurrentBranch] = useState<string>('');
   const [allBranches, setAllBranches] = useState<string[]>([]);
@@ -24,11 +33,13 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
   const [showOverrideWarning, setShowOverrideWarning] = useState(false);
   const [overrideNote, setOverrideNote] = useState<string>('');
   const [branchToOverride, setBranchToOverride] = useState<string>('');
+  const [changesSummary, setChangesSummary] = useState<ChangesSummary | null>(null);
 
   // Fetch current git status
   useEffect(() => {
     if (isOpen) {
       fetchGitStatus();
+      fetchChangesSummary();
     }
   }, [isOpen]);
 
@@ -50,6 +61,32 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
       toast.error('Failed to load git status');
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function fetchChangesSummary() {
+    try {
+      const response = await fetch('http://localhost:4000/git/summary');
+      const data = await response.json();
+      setChangesSummary(data);
+
+      // Auto-generate commit message if there are changes
+      if (data.hasChanges && !commitMessage) {
+        const parts: string[] = [];
+        if (data.skills.added.length > 0) {
+          parts.push(`Add ${data.skills.added.join(', ')}`);
+        }
+        if (data.skills.modified.length > 0) {
+          parts.push(`Update ${data.skills.modified.join(', ')}`);
+        }
+        if (data.components.length > 0 || data.generators.length > 0) {
+          parts.push('improve preview and export');
+        }
+        const generatedMessage = parts.join('; ') || 'Update slide generator';
+        setCommitMessage(generatedMessage);
+      }
+    } catch (error) {
+      console.error('Failed to fetch changes summary:', error);
     }
   }
 
@@ -119,6 +156,7 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
 
       toast.success('Changes committed and pushed successfully');
       setCommitMessage('');
+      setChangesSummary(null);
       onClose();
     } catch (error) {
       console.error('Failed to commit and push:', error);
@@ -262,6 +300,103 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Changes Summary */}
+            {changesSummary?.hasChanges && (
+              <div className="border-t pt-6" style={{ borderColor: '#E5E7EB' }}>
+                <h3 className="text-sm font-semibold mb-3" style={{ color: '#25282A' }}>
+                  📋 Changes Summary
+                </h3>
+                <div className="space-y-3">
+                  {/* Skills */}
+                  {(changesSummary.skills.added.length > 0 ||
+                    changesSummary.skills.modified.length > 0 ||
+                    changesSummary.skills.removed.length > 0) && (
+                    <div className="p-3 rounded-lg" style={{ backgroundColor: '#EEF4F7', border: '1px solid #D1E5EC' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-medium" style={{ color: '#00446A' }}>📦 Skills</span>
+                      </div>
+                      <div className="space-y-1 text-xs">
+                        {changesSummary.skills.added.map(skill => (
+                          <div key={skill} className="flex items-center gap-2">
+                            <span className="text-green-600 font-mono">+</span>
+                            <span style={{ color: '#25282A' }}>{skill}</span>
+                          </div>
+                        ))}
+                        {changesSummary.skills.modified.map(skill => (
+                          <div key={skill} className="flex items-center gap-2">
+                            <span className="text-blue-600 font-mono">~</span>
+                            <span style={{ color: '#25282A' }}>{skill}</span>
+                          </div>
+                        ))}
+                        {changesSummary.skills.removed.map(skill => (
+                          <div key={skill} className="flex items-center gap-2">
+                            <span className="text-red-600 font-mono">-</span>
+                            <span style={{ color: '#25282A' }}>{skill}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Components */}
+                  {changesSummary.components.length > 0 && (
+                    <div className="p-3 rounded-lg" style={{ backgroundColor: '#F5F3FF', border: '1px solid #E9D5FF' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-medium" style={{ color: '#7C3AED' }}>🎨 UI Components</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {changesSummary.components.map(comp => (
+                          <span
+                            key={comp}
+                            className="px-2 py-0.5 rounded text-xs"
+                            style={{ backgroundColor: '#E9D5FF', color: '#6B21A8' }}
+                          >
+                            {comp}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Generators */}
+                  {changesSummary.generators.length > 0 && (
+                    <div className="p-3 rounded-lg" style={{ backgroundColor: '#FFF7ED', border: '1px solid #FED7AA' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-medium" style={{ color: '#C2410C' }}>⚙️ Generators</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {changesSummary.generators.map(gen => (
+                          <span
+                            key={gen}
+                            className="px-2 py-0.5 rounded text-xs"
+                            style={{ backgroundColor: '#FED7AA', color: '#9A3412' }}
+                          >
+                            {gen}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Other Files */}
+                  {changesSummary.other.length > 0 && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer hover:underline" style={{ color: '#75787B' }}>
+                        Other changes ({changesSummary.other.length} files)
+                      </summary>
+                      <ul className="mt-2 ml-4 space-y-1">
+                        {changesSummary.other.map(file => (
+                          <li key={file} className="font-mono text-[10px]" style={{ color: '#4A6070' }}>
+                            {file}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="border-t pt-6" style={{ borderColor: '#E5E7EB' }}>
               <div className="space-y-3">
