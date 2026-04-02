@@ -155,9 +155,18 @@ async function callClaudeFoundry(prompt, systemPrompt) {
 
     } catch (error) {
       lastError = error;
+
+      // Log detailed error information
+      console.error(`  ❌ Error on attempt ${attempt}/${maxRetries}:`, {
+        message: error.message,
+        code: error.code,
+        cause: error.cause?.message || error.cause,
+        stack: error.stack?.split('\n').slice(0, 3).join('\n')
+      });
+
       if (attempt < maxRetries && (error.message.includes('overloaded') || error.message.includes('ECONNRESET'))) {
         const waitTime = Math.pow(2, attempt) * 1000;
-        console.log(`  ⏳ Request error, retry ${attempt}/${maxRetries} after ${waitTime}ms:`, error.message);
+        console.log(`  ⏳ Retrying after ${waitTime}ms...`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }

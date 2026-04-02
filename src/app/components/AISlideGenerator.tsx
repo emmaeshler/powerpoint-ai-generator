@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Slide, generateSlideId, generateComponentId } from '../types';
 import { Button } from './ui/button';
-import { Sparkles, Loader2, AlertCircle, RefreshCw, Layers, StickyNote, ChevronDown, Image as ImageIcon, Users, Briefcase, HelpCircle } from 'lucide-react';
+import { Sparkles, Loader2, AlertCircle, RefreshCw, Layers, StickyNote, ChevronDown, Image as ImageIcon, Users, Briefcase, HelpCircle, X } from 'lucide-react';
 import { smartParsePrompt } from '../utils/smart-parser';
 import { EMMA_SYSTEM_PROMPT, MINIMAL_SYSTEM_PROMPT } from '../utils/claude-generator';
 import { parseSlideResponse, parseDeckResponse } from '../utils/slide-parsers';
@@ -55,9 +55,10 @@ interface AISlideGeneratorProps {
   onGenerateSlide: (slide: Slide) => void;
   onGenerateSlides?: (slides: Slide[]) => void;
   onRequestAIGeneration?: (prompt: string, referenceImageBase64?: string, systemPrompt?: string) => Promise<string>;
+  onStopGeneration?: () => void;
 }
 
-export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestAIGeneration }: AISlideGeneratorProps) {
+export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestAIGeneration, onStopGeneration }: AISlideGeneratorProps) {
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
   const [selectedAudience, setSelectedAudience] = useState<string | undefined>(undefined);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [showAudienceDropdown, setShowAudienceDropdown] = useState(false);
+  const [showSkillDropdown, setShowSkillDropdown] = useState(false);
   const [showSkillsModal, setShowSkillsModal] = useState(false);
   const [showAddSkillGuide, setShowAddSkillGuide] = useState(false);
   const [userDefaultBundle, setUserDefaultBundle] = useState<string>('emma-bundle');
@@ -626,29 +628,42 @@ Remember: Return ONLY the JSON array. No explanation, no markdown code blocks.`;
           <span>Deck mode generates 4–8 grouped slides appended to your current deck.</span>
         </div>
       )}
-      <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs text-gray-400">
-          Cmd+Enter to generate
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-xs text-gray-400 flex-shrink-0">
+          Cmd+Enter
         </span>
-        <Button
-          onClick={handleGenerate}
-          disabled={!prompt.trim() || isGenerating}
-          size="sm"
-          className="text-white"
-          style={{ backgroundColor: mode === 'deck' ? '#1B6B7B' : '#00446A' }}
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              {mode === 'deck' ? 'Building Deck...' : 'Generating...'}
-            </>
-          ) : (
-            <>
-              {mode === 'deck' ? <Layers className="w-4 h-4 mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
-              {mode === 'deck' ? 'Generate Deck' : 'Generate'}
-            </>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {isGenerating && onStopGeneration && (
+            <Button
+              onClick={onStopGeneration}
+              size="sm"
+              variant="outline"
+              className="text-red-600 border-red-300 hover:bg-red-50 px-2 py-1 h-7"
+            >
+              <X className="w-3.5 h-3.5 mr-1" />
+              <span className="text-xs">Stop</span>
+            </Button>
           )}
-        </Button>
+          <Button
+            onClick={handleGenerate}
+            disabled={!prompt.trim() || isGenerating}
+            size="sm"
+            className="text-white px-3 py-1 h-7"
+            style={{ backgroundColor: mode === 'deck' ? '#1B6B7B' : '#00446A' }}
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                <span className="text-xs">{mode === 'deck' ? 'Building...' : 'Generating...'}</span>
+              </>
+            ) : (
+              <>
+                {mode === 'deck' ? <Layers className="w-3.5 h-3.5 mr-1.5" /> : <Sparkles className="w-3.5 h-3.5 mr-1.5" />}
+                <span className="text-xs">{mode === 'deck' ? 'Generate Deck' : 'Generate'}</span>
+              </>
+            )}
+          </Button>
+        </div>
       </div>
       {showBriefingModal && (
         <DeckBriefingModal

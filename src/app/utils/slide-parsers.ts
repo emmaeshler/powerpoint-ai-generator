@@ -10,8 +10,8 @@ type SlideParser = (response: string, bundleId?: string) => Slide;
 
 const PARSERS: Record<string, SlideParser> = {
   'emma-bundle': parseEmmaSlide,
-  'pfp-bundle': parsePFPSlide,
-  'test-bundle': parsePFPSlide, // Use same flexible parser as PFP
+  'wills-bundle': parseGenericSlide,
+  'test-bundle': parseGenericSlide,
   'generic': parseGenericSlide,
 };
 
@@ -109,6 +109,31 @@ function parseEmmaSlide(response: string, bundleId?: string): Slide {
  * Parser for PFP bundle - flexible structure defined by PFP's skill file
  */
 function parsePFPSlide(response: string, bundleId?: string): Slide {
+  // Check if skill is trying to ask questions instead of generating
+  const lowerResponse = response.toLowerCase();
+  if (
+    (lowerResponse.includes('question') && lowerResponse.includes('**question')) ||
+    lowerResponse.includes('i need to') ||
+    lowerResponse.includes('let me ask') ||
+    lowerResponse.includes('clarif')
+  ) {
+    console.warn('[PFP Parser] Skill tried to ask questions. Creating fallback slide.');
+
+    // Create a fallback slide explaining the issue
+    return {
+      id: generateSlideId(),
+      title: 'Skill Configuration Issue',
+      soWhat: 'This skill tried to start a conversation instead of generating a slide',
+      description: 'The skill needs to be updated to work in single-shot mode',
+      content: {
+        message: response.substring(0, 500),
+        note: 'Try providing more detail in your prompt, or use a different skill designed for single-slide generation.'
+      },
+      bundleId: bundleId || 'pfp-bundle',
+      renderType: 'pfp',
+    };
+  }
+
   // Strip markdown code blocks
   let cleaned = response.trim();
 
@@ -136,7 +161,20 @@ function parsePFPSlide(response: string, bundleId?: string): Slide {
   } catch (error) {
     console.error('[PFP Parser] Failed to parse JSON:', error);
     console.error('[PFP Parser] Response was:', response);
-    throw new Error('Failed to parse PFP slide JSON');
+
+    // Create a fallback slide showing the raw response
+    return {
+      id: generateSlideId(),
+      title: 'Unable to Parse Response',
+      soWhat: 'The skill returned content that could not be parsed as JSON',
+      description: 'Check the content below to see what was returned',
+      content: {
+        rawResponse: response.substring(0, 1000),
+        parseError: error instanceof Error ? error.message : 'Unknown error'
+      },
+      bundleId: bundleId || 'pfp-bundle',
+      renderType: 'pfp',
+    };
   }
 }
 

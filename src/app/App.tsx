@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Slide, generateSlideId, generateComponentId, CalloutBarComponent } from './types';
 import { SlideList } from './components/SlideList';
 import { SlidePreviewRouter } from './components/SlidePreviewRouter';
@@ -25,6 +25,7 @@ function App() {
   const [showStopModal, setShowStopModal] = useState(false);
   const [isSessionExpired, setIsSessionExpired] = useState(false);
   const [showGitWorkflow, setShowGitWorkflow] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleStopServer = useCallback(() => {
     setShowStopModal(true);
@@ -193,6 +194,7 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
 
     try {
       const controller = new AbortController();
+      abortControllerRef.current = controller;
       const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       let finalPrompt = prompt;
@@ -238,7 +240,7 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
     } catch (error) {
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          throw new Error('AI request timed out. Check if the server is running.');
+          throw new Error('Generation cancelled by user');
         } else if (error.message.includes('Failed to fetch')) {
           throw new Error(
             'Cannot reach AI endpoint. Check if the server is running.\n' +
@@ -248,8 +250,18 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
         throw error;
       }
       throw new Error('Failed to generate slide: Unknown error');
+    } finally {
+      abortControllerRef.current = null;
     }
   }
+
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      toast.info('Generation cancelled');
+    }
+  }, []);
 
   function handleGeneratePowerPoint() {
     try {
@@ -274,10 +286,12 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
 
   // Show "server stopped" screen with restart instructions
   if (isSessionExpired) {
+    const currentUrl = window.location.origin;
+
     return (
       <div className="h-screen flex flex-col items-center justify-center" style={{ backgroundColor: '#F3F4F4' }}>
         <Toaster />
-        <div className="w-full max-w-lg bg-white rounded-xl shadow-lg overflow-hidden" style={{ border: '1px solid #E5E7EB' }}>
+        <div className="w-full max-w-2xl bg-white rounded-xl shadow-lg overflow-hidden" style={{ border: '1px solid #E5E7EB' }}>
           <div className="h-1.5" style={{ backgroundColor: '#DC2626' }} />
           <div className="p-8">
             <div className="text-center mb-6">
@@ -291,7 +305,16 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
                 Server Stopped
               </h2>
               <p className="text-sm" style={{ color: '#6B7280' }}>
-                The app has been shut down and your terminal is free. Follow the steps below to start it again.
+                Both servers have been shut down and your terminal is free.
+              </p>
+            </div>
+
+            <div className="rounded-lg p-5 mb-4" style={{ backgroundColor: '#FEF3C7', border: '1px solid #FDE68A' }}>
+              <p className="text-xs font-semibold mb-2" style={{ color: '#92400E' }}>
+                ⚠️ You need to start TWO servers
+              </p>
+              <p className="text-xs" style={{ color: '#92400E' }}>
+                This app requires two terminal tabs: one for the web app, one for the Claude bridge server.
               </p>
             </div>
 
@@ -300,8 +323,8 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
                 How to restart:
               </p>
 
-              <div className="space-y-4">
-                {/* Step 1 */}
+              <div className="space-y-5">
+                {/* Step 1: Open first terminal */}
                 <div className="flex gap-3">
                   <div
                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
@@ -309,28 +332,40 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
                   >
                     1
                   </div>
-                  <div>
-                    <p className="text-sm font-medium mb-1" style={{ color: '#25282A' }}>
-                      Open Terminal
+                  <div className="flex-1">
+                    <p className="text-sm font-medium mb-2" style={{ color: '#25282A' }}>
+                      Open Terminal (Tab 1)
                     </p>
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       <div className="flex items-center gap-1.5 text-xs" style={{ color: '#6B7280' }}>
                         <Search className="w-3 h-3 flex-shrink-0" />
                         <span>
-                          Press <code className="px-1 py-0.5 bg-gray-200 rounded text-[10px] font-mono">Cmd + Space</code> to open Spotlight
+                          Press <code className="px-1 py-0.5 bg-gray-200 rounded text-[10px] font-mono">Cmd + Space</code>, type <code className="px-1 py-0.5 bg-gray-200 rounded text-[10px] font-mono">Terminal</code>
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs" style={{ color: '#6B7280' }}>
-                        <SquareTerminal className="w-3 h-3 flex-shrink-0" />
-                        <span>
-                          Type <code className="px-1 py-0.5 bg-gray-200 rounded text-[10px] font-mono">Terminal</code> and press Enter
-                        </span>
+                      <div>
+                        <p className="text-xs mb-1" style={{ color: '#6B7280' }}>Navigate to project folder:</p>
+                        <code
+                          className="block text-xs font-mono px-3 py-2 rounded"
+                          style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}
+                        >
+                          cd ~/Documents/Powerpoint-App-main
+                        </code>
+                      </div>
+                      <div>
+                        <p className="text-xs mb-1" style={{ color: '#6B7280' }}>Start the dev server:</p>
+                        <code
+                          className="block text-xs font-mono px-3 py-2 rounded"
+                          style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}
+                        >
+                          npm run dev
+                        </code>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Step 2 */}
+                {/* Step 2: Open second terminal */}
                 <div className="flex gap-3">
                   <div
                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
@@ -338,20 +373,40 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
                   >
                     2
                   </div>
-                  <div>
-                    <p className="text-sm font-medium mb-1" style={{ color: '#25282A' }}>
-                      Navigate to the project folder
+                  <div className="flex-1">
+                    <p className="text-sm font-medium mb-2" style={{ color: '#25282A' }}>
+                      Open New Terminal Tab (Tab 2)
                     </p>
-                    <code
-                      className="block text-xs font-mono px-3 py-2 rounded"
-                      style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}
-                    >
-                      cd ~/Documents/Powerpoint-App-main
-                    </code>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs" style={{ color: '#6B7280' }}>
+                        <Terminal className="w-3 h-3 flex-shrink-0" />
+                        <span>
+                          In Terminal, press <code className="px-1 py-0.5 bg-gray-200 rounded text-[10px] font-mono">Cmd + T</code> for new tab
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs mb-1" style={{ color: '#6B7280' }}>Navigate again (same folder):</p>
+                        <code
+                          className="block text-xs font-mono px-3 py-2 rounded"
+                          style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}
+                        >
+                          cd ~/Documents/Powerpoint-App-main
+                        </code>
+                      </div>
+                      <div>
+                        <p className="text-xs mb-1" style={{ color: '#6B7280' }}>Start the Claude bridge server:</p>
+                        <code
+                          className="block text-xs font-mono px-3 py-2 rounded"
+                          style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}
+                        >
+                          node claude-bridge-server.js
+                        </code>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Step 3 */}
+                {/* Step 3: Find the URL */}
                 <div className="flex gap-3">
                   <div
                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
@@ -359,20 +414,36 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
                   >
                     3
                   </div>
-                  <div>
-                    <p className="text-sm font-medium mb-1" style={{ color: '#25282A' }}>
-                      Start the app
+                  <div className="flex-1">
+                    <p className="text-sm font-medium mb-2" style={{ color: '#25282A' }}>
+                      Find the localhost URL
+                    </p>
+                    <p className="text-xs mb-2" style={{ color: '#6B7280' }}>
+                      In Terminal Tab 1, look for a line like this:
                     </p>
                     <code
-                      className="block text-xs font-mono px-3 py-2 rounded"
-                      style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}
+                      className="block text-xs font-mono px-3 py-2 rounded mb-2"
+                      style={{ backgroundColor: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' }}
                     >
-                      npm start
+                      ➜  Local:   http://localhost:5173/
                     </code>
+                    <p className="text-xs" style={{ color: '#6B7280' }}>
+                      The port number might be different (5174, 5175, etc.) if 5173 is busy.
+                    </p>
+                    {currentUrl !== 'null' && currentUrl !== window.location.origin && (
+                      <div className="mt-2 p-2 rounded" style={{ backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE' }}>
+                        <p className="text-xs font-medium mb-1" style={{ color: '#1E40AF' }}>
+                          💡 Your URL was:
+                        </p>
+                        <code className="text-xs font-mono" style={{ color: '#1E40AF' }}>
+                          {currentUrl}
+                        </code>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Step 4 */}
+                {/* Step 4: Open browser */}
                 <div className="flex gap-3">
                   <div
                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
@@ -380,26 +451,26 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
                   >
                     4
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm font-medium mb-1" style={{ color: '#25282A' }}>
-                      Open in your browser
+                      Open in browser
                     </p>
                     <p className="text-xs" style={{ color: '#6B7280' }}>
-                      Once the terminal says the server is running, open a new tab and go to:
+                      Copy the localhost URL from Terminal Tab 1 and paste it into your browser.
                     </p>
-                    <code
-                      className="block text-xs font-mono px-3 py-2 rounded mt-1"
-                      style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}
-                    >
-                      http://localhost:5173
-                    </code>
                   </div>
                 </div>
               </div>
             </div>
 
+            <div className="rounded-lg p-3 mt-4" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+              <p className="text-xs" style={{ color: '#166534' }}>
+                ✅ Both servers running? The bridge server should say "Server is running on http://localhost:4000" in Tab 2.
+              </p>
+            </div>
+
             <p className="text-center text-xs mt-4" style={{ color: '#9CA3AF' }}>
-              You can close this tab.
+              You can close this tab once you've started both servers.
             </p>
           </div>
         </div>
@@ -490,6 +561,7 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             onAddBlankSlide={handleAddBlankSlide}
             onGenerateSlides={handleGenerateSlides}
             onRequestAIGeneration={handleRequestAIGeneration}
+            onStopGeneration={handleStopGeneration}
             onEditSlide={handleEditSlide}
             isEditingSlide={isEditingSlide}
           />

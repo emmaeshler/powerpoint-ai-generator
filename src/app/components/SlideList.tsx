@@ -1,3 +1,5 @@
+'use client';
+
 import { Slide } from '../types';
 import { ChevronUp, ChevronDown, Copy, Trash2, Pencil, Plus, Sparkles, Layers, ChevronRight } from 'lucide-react';
 import { AISlideGenerator } from './AISlideGenerator';
@@ -16,6 +18,7 @@ interface SlideListProps {
   onGenerateSlide: (slide: Slide) => void;
   onGenerateSlides?: (slides: Slide[]) => void;
   onRequestAIGeneration?: (prompt: string, referenceImageBase64?: string) => Promise<string>;
+  onStopGeneration?: () => void;
   onEditSlide?: (slideId: string, editPrompt: string) => void;
   isEditingSlide?: boolean;
   onAddBlankSlide?: () => void;
@@ -31,6 +34,7 @@ export function SlideList({
   onGenerateSlide,
   onGenerateSlides,
   onRequestAIGeneration,
+  onStopGeneration,
   onEditSlide,
   isEditingSlide,
   onAddBlankSlide,
@@ -96,7 +100,12 @@ export function SlideList({
 
   return (
     <div className="h-full flex flex-col bg-white border-r border-gray-200">
-      <AISlideGenerator onGenerateSlide={onGenerateSlide} onGenerateSlides={onGenerateSlides} onRequestAIGeneration={onRequestAIGeneration} />
+      <AISlideGenerator
+        onGenerateSlide={onGenerateSlide}
+        onGenerateSlides={onGenerateSlides}
+        onRequestAIGeneration={onRequestAIGeneration}
+        onStopGeneration={onStopGeneration}
+      />
 
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
