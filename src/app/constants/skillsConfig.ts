@@ -53,6 +53,13 @@ export const SKILLS_CONFIG: SkillsConfig = {
       isPublic: true,
       repoUrl: 'https://github.com/PRICE-FOR-PROFIT/poc-branded-pptx-deck',
     },
+    {
+      id: 'narrative-slide',
+      label: 'Narrative Slide Skill (Test)',
+      description: 'Test skill - narrative sections structure, no templates',
+      file: 'narrative-slide-skill.md',
+      bundleId: 'test-bundle',
+    },
   ],
   bundles: [
     {
@@ -63,6 +70,12 @@ export const SKILLS_CONFIG: SkillsConfig = {
       skills: ['design-system', 'brand-guide', 'reference-rules', 'composition-engine', 'layout-templates', 'figma-updates'],
       isDefault: true,
       color: '#1B6B7B',
+      capabilities: {
+        layouts: true,           // Has layout-templates.json
+        referenceSlides: true,   // Has reference-rules.md
+        audience: true,          // Can tailor to audiences
+        components: true,        // Has full component library
+      },
     },
     {
       id: 'pfp-bundle',
@@ -72,6 +85,26 @@ export const SKILLS_CONFIG: SkillsConfig = {
       skills: ['branded-pptx-deck'],
       repoUrl: 'https://github.com/PRICE-FOR-PROFIT/poc-branded-pptx-deck',
       color: '#E8610A',
+      capabilities: {
+        layouts: false,          // Uses its own deck orchestration
+        referenceSlides: false,  // No reference layouts
+        audience: false,         // Generic audience
+        components: false,       // Minimal components
+      },
+    },
+    {
+      id: 'test-bundle',
+      name: 'Test Bundle',
+      owner: 'Testing',
+      description: 'Test narrative slide structure - no templates',
+      skills: ['narrative-slide'],
+      color: '#8B5CF6',
+      capabilities: {
+        layouts: false,
+        referenceSlides: false,
+        audience: false,
+        components: false,
+      },
     },
   ],
 };

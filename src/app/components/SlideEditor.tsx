@@ -186,6 +186,50 @@ export function SlideEditor({ slide, onUpdateSlide }: SlideEditorProps) {
     );
   }
 
+  // Handle non-Emma slides (no template/slot structure)
+  if (!slide.templateId || !slide.slotContent) {
+    return (
+      <div className="h-full overflow-y-auto bg-white border-l border-gray-200 p-5">
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">Slide Preview</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              This slide uses a different structure than Emma's template system.
+              View it in the preview panel on the left.
+            </p>
+          </div>
+
+          {slide.bundleId && (
+            <div className="text-xs">
+              <span className="text-gray-600">Bundle:</span>
+              <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-mono">
+                {slide.bundleId}
+              </span>
+            </div>
+          )}
+
+          {slide.content && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-700 mb-2">Content</h4>
+              <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-700 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto">
+                {typeof slide.content === 'string' ? slide.content : JSON.stringify(slide.content, null, 2)}
+              </div>
+            </div>
+          )}
+
+          {slide.prompt && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-700 mb-2">Original Prompt</h4>
+              <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-600">
+                {slide.prompt}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const template = getTemplate(slide.templateId);
 
   // Compute display title from soWhat + description (backward compat)

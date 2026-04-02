@@ -9,7 +9,7 @@ const TEMPLATE_SUMMARY = LAYOUT_TEMPLATES.map(t => {
   return `- "${t.templateId}" [${t.displayName}]: ${t.slotCount} slots — ${slotList}`;
 }).join('\n');
 
-export const DECKFORGE_SYSTEM_PROMPT = `You are Emma's PPT Designer, building slides from composable components placed into a grid layout template. You receive natural language and return a JSON slide object.
+export const EMMA_SYSTEM_PROMPT = `You are Emma's PPT Designer, building slides from composable components placed into a grid layout template. You receive natural language and return a JSON slide object.
 
 ⚠️  CRITICAL: If the prompt is vague or ambiguous, REQUEST CLARIFICATION instead of guessing. Users often don't know exactly what they want — your job is to ask the right questions to understand their intent. See "REQUESTING CLARIFICATIONS" section for details.
 
@@ -1493,6 +1493,50 @@ Here's the slide:
 If you need to request clarification, return the CLARIFICATION_REQUEST JSON format.
 Otherwise, return the slide JSON directly with no other text.`;
 
+export const MINIMAL_SYSTEM_PROMPT = `
+You are a presentation slide generator. Your job is to create slides based EXCLUSIVELY on the skill files provided in the user prompt.
+
+⚠️  CRITICAL ISOLATION RULES:
+1. DO NOT use INSIGHT2PROFIT branding, colors, or design patterns unless explicitly defined in skill files
+2. DO NOT assume navy/teal/orange color scheme unless specified in skill files
+3. DO NOT use Emma's visual-first philosophy unless skill files define it
+4. DO NOT reference any specific company or brand unless skill files mention it
+5. If NO skill files are provided, use generic presentation patterns - NO company-specific branding
+
+## Your Task
+Read the skill files provided in the user prompt. They contain ALL instructions about:
+- **Branding and company identity** - only use brands/companies mentioned in skill files
+- **Color schemes and visual style** - only use colors specified in skill files
+- **How to structure slides** - JSON schema, fields, layout approach from skill files
+- **What components or elements are available** - as defined in skill files
+- **Design rules and visual guidelines** - as specified in skill files
+
+**CRITICAL:** Follow ONLY what the skill files instruct. Do not assume any particular slide structure, component types, design approach, or branding unless explicitly defined in the skill files.
+
+## Output Format
+Return ONLY valid JSON. No markdown, no code blocks, no explanations.
+
+The skill files will specify the exact JSON schema to return. Follow that schema precisely.
+
+## Clarifications
+If the prompt is ambiguous, respond with:
+{
+  "clarifications": [
+    {
+      "question": "What metric should be highlighted?",
+      "type": "choice",
+      "options": ["Revenue", "EBITDA", "Market Share"],
+      "required": true
+    }
+  ]
+}
+
+When to request clarification:
+- Missing critical data (values, timeframes, labels)
+- Ambiguous requirements (multiple valid interpretations)
+- Unclear hierarchy (what's the dominant message?)
+`;
+
 /**
  * Parse Claude's response and extract the slide JSON
  */
@@ -1543,7 +1587,7 @@ export function parseClaudeResponse(response: string): Slide {
       if (parsed.calloutBar && parsed.calloutBar.text) {
         calloutBar = {
           id: generateComponentId(),
-          type: 'callout_bar',
+          type: 'callout_bar' as const,
           text: parsed.calloutBar.text,
         };
       }
@@ -1609,7 +1653,7 @@ export function parseClaudeResponse(response: string): Slide {
         keyMetricLabel: parsed.keyMetricLabel || undefined,
         templateId,
         slotContent,
-        calloutBar: calloutComp ? { id: calloutComp.id, type: 'callout_bar', text: calloutComp.text } : undefined,
+        calloutBar: calloutComp ? { id: calloutComp.id, type: 'callout_bar' as const, text: calloutComp.text } : undefined,
       };
 
       // Auto-fix: Remove keyMetric if using kpi_cards/stat_hero to prevent duplication
@@ -1655,7 +1699,7 @@ function pickTemplateForComponents(comps: any[]): string {
  * Build the full prompt to send to Claude
  */
 export function buildClaudePrompt(userPrompt: string): string {
-  return `${DECKFORGE_SYSTEM_PROMPT}
+  return `${EMMA_SYSTEM_PROMPT}
 
 USER REQUEST:
 ${userPrompt}
@@ -1667,7 +1711,7 @@ Remember: Return ONLY the JSON object. No explanation, no markdown code blocks.`
  * Build a deck-level prompt that asks Claude for multiple slides
  */
 export function buildClaudeDeckPrompt(userPrompt: string): string {
-  return `${DECKFORGE_SYSTEM_PROMPT}
+  return `${EMMA_SYSTEM_PROMPT}
 
 IMPORTANT: The user wants a FULL DECK (multiple slides). Return a JSON array of slide objects.
 Each slide follows the exact same format as a single slide.

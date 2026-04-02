@@ -17,6 +17,12 @@ export interface SkillBundle {
   isDefault?: boolean;       // User's default bundle
   repoUrl?: string;          // Optional GitHub repo link
   color?: string;            // Visual distinction color
+  capabilities?: {           // What features this bundle supports
+    layouts?: boolean;       // Has layout/template skills
+    referenceSlides?: boolean; // Can use reference slide images
+    audience?: boolean;      // Has audience-specific guidance
+    components?: boolean;    // Has component library
+  };
 }
 
 export interface SkillsConfig {

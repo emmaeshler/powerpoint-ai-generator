@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Briefcase, Globe, Loader2, Pencil, Check } from 'lucide-react';
+import { X, Briefcase, Globe, Loader2, Pencil, Check, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { SKILLS_CONFIG } from '../constants/skillsConfig';
@@ -36,6 +36,7 @@ export function SkillsModal({
   const [renamingBundleId, setRenamingBundleId] = useState<string | null>(null);
   const [newBundleName, setNewBundleName] = useState('');
   const [bundleNameOverrides, setBundleNameOverrides] = useState<Record<string, string>>({});
+  const [showAddSkillsMenu, setShowAddSkillsMenu] = useState(false);
 
   // Load bundle name overrides from localStorage
   useEffect(() => {
@@ -419,117 +420,146 @@ export function SkillsModal({
           </div>
 
           {/* Add Skills */}
-          <div className="border-t pt-4 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700">Add Skills</h3>
-
-            {/* GitHub Repository Connection */}
-            {!showRepoInput ? (
-              <button
-                onClick={() => setShowRepoInput(true)}
-                className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#1B6B7B] transition-colors flex items-center justify-center gap-2 text-sm font-medium"
-                style={{ color: '#1B6B7B' }}
+          <div className="border-t pt-4">
+            {!showAddSkillsMenu ? (
+              <Button
+                onClick={() => setShowAddSkillsMenu(true)}
+                variant="outline"
+                className="w-full"
               >
-                <Globe className="w-4 h-4" />
-                Connect GitHub Repository
-              </button>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Skills
+              </Button>
             ) : (
               <div className="space-y-3">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    placeholder="https://github.com/owner/repo"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#1B6B7B] focus:border-transparent"
-                  />
-                  <Button
-                    onClick={handleConnectRepo}
-                    disabled={isLoadingRepo || !repoUrl.trim()}
-                    className="px-4"
-                    style={{ backgroundColor: '#1B6B7B' }}
-                  >
-                    {isLoadingRepo ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      'Connect'
-                    )}
-                  </Button>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700">Add Skills</h3>
                   <Button
                     onClick={() => {
+                      setShowAddSkillsMenu(false);
                       setShowRepoInput(false);
                       setRepoUrl('');
                       setRepoError(null);
+                      setManifestError(null);
                     }}
-                    variant="outline"
-                    className="px-4"
+                    variant="ghost"
+                    size="sm"
                   >
-                    Cancel
+                    <X className="w-4 h-4" />
                   </Button>
                 </div>
-                {repoError && (
-                  <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
-                    {repoError}
+
+                {/* GitHub Repository Connection */}
+                {!showRepoInput ? (
+                  <button
+                    onClick={() => setShowRepoInput(true)}
+                    className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#1B6B7B] transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                    style={{ color: '#1B6B7B' }}
+                  >
+                    <Globe className="w-4 h-4" />
+                    From GitHub Repository
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={repoUrl}
+                        onChange={(e) => setRepoUrl(e.target.value)}
+                        placeholder="https://github.com/owner/repo"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#1B6B7B] focus:border-transparent"
+                      />
+                      <Button
+                        onClick={handleConnectRepo}
+                        disabled={isLoadingRepo || !repoUrl.trim()}
+                        className="px-4"
+                        style={{ backgroundColor: '#1B6B7B' }}
+                      >
+                        {isLoadingRepo ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          'Connect'
+                        )}
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setShowRepoInput(false);
+                          setRepoUrl('');
+                          setRepoError(null);
+                        }}
+                        variant="outline"
+                        className="px-4"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                    {repoError && (
+                      <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
+                        {repoError}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-500">
+                      <p className="font-medium mb-1">Repository should contain:</p>
+                      <ul className="list-disc list-inside space-y-0.5 ml-2">
+                        <li>skill-manifest.json (standard format), or</li>
+                        <li>SKILL.md (single skill file)</li>
+                      </ul>
+                    </div>
                   </div>
                 )}
-                <div className="text-xs text-gray-500">
-                  <p className="font-medium mb-1">Repository should contain:</p>
-                  <ul className="list-disc list-inside space-y-0.5 ml-2">
-                    <li>skill-manifest.json (standard format), or</li>
-                    <li>SKILL.md (single skill file)</li>
-                  </ul>
-                </div>
-              </div>
-            )}
 
-            {/* Divider */}
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-2 bg-white text-gray-500">or</span>
-              </div>
-            </div>
-
-            {/* File Upload */}
-            <div className="space-y-3">
-              <label
-                htmlFor="manifest-upload"
-                className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#1B6B7B] transition-colors flex items-center justify-center gap-2 text-sm font-medium cursor-pointer"
-                style={{ color: '#1B6B7B' }}
-              >
-                {isLoadingManifest ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading manifest...
-                  </>
-                ) : (
-                  <>
-                    <Globe className="w-4 h-4" />
-                    Upload Manifest File
-                  </>
+                {/* Divider */}
+                {!showRepoInput && (
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-gray-300"></div>
+                    </div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="px-2 bg-white text-gray-500">or</span>
+                    </div>
+                  </div>
                 )}
-              </label>
-              <input
-                id="manifest-upload"
-                type="file"
-                accept=".json"
-                onChange={handleFileUpload}
-                className="hidden"
-                disabled={isLoadingManifest}
-              />
 
-              {manifestError && (
-                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
-                  {manifestError}
-                </div>
-              )}
+                {/* File Upload */}
+                {!showRepoInput && (
+                  <div className="space-y-3">
+                    <label
+                      htmlFor="manifest-upload"
+                      className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#1B6B7B] transition-colors flex items-center justify-center gap-2 text-sm font-medium cursor-pointer"
+                      style={{ color: '#1B6B7B' }}
+                    >
+                      {isLoadingManifest ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading manifest...
+                        </>
+                      ) : (
+                        <>
+                          <Globe className="w-4 h-4" />
+                          Upload Manifest File
+                        </>
+                      )}
+                    </label>
+                    <input
+                      id="manifest-upload"
+                      type="file"
+                      accept=".json"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      disabled={isLoadingManifest}
+                    />
 
-              <details className="text-xs text-gray-500">
-                <summary className="cursor-pointer text-[#1B6B7B] hover:underline">
-                  View manifest format
-                </summary>
-                <pre className="mt-2 p-2 bg-gray-100 rounded text-[10px] overflow-x-auto">
+                    {manifestError && (
+                      <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
+                        {manifestError}
+                      </div>
+                    )}
+
+                    <details className="text-xs text-gray-500">
+                      <summary className="cursor-pointer text-[#1B6B7B] hover:underline">
+                        View manifest format
+                      </summary>
+                      <pre className="mt-2 p-2 bg-gray-100 rounded text-[10px] overflow-x-auto">
 {`{
   "version": "1.0",
   "bundle": {
@@ -546,22 +576,25 @@ export function SkillsModal({
     }
   ]
 }`}
-                </pre>
-              </details>
-            </div>
+                      </pre>
+                    </details>
+                  </div>
+                )}
 
-            {/* Helper: Manual Upload */}
-            {onShowGuide && (
-              <div className="pt-2">
-                <button
-                  onClick={() => {
-                    onClose();
-                    onShowGuide();
-                  }}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline"
-                >
-                  Or manually add a skill file
-                </button>
+                {/* Helper: Manual Upload */}
+                {!showRepoInput && onShowGuide && (
+                  <div className="pt-2">
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onShowGuide();
+                      }}
+                      className="text-xs text-gray-500 hover:text-gray-700 underline"
+                    >
+                      Or manually add a skill file
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

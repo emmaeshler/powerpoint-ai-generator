@@ -260,6 +260,12 @@ export function SlideList({
 }
 
 function getComponentsSummary(slide: Slide): string {
+  // Handle non-Emma slides (no slotContent structure)
+  if (!slide.slotContent) {
+    if (slide.content) return 'CONTENT';
+    return 'SLIDE';
+  }
+
   const comps = Object.values(slide.slotContent);
   if (slide.calloutBar) comps.push(slide.calloutBar);
   if (comps.length === 0) return 'EMPTY';

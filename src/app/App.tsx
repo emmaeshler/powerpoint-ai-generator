@@ -1,17 +1,21 @@
+'use client';
+
 import { useState, useCallback } from 'react';
 import { Slide, generateSlideId, generateComponentId, CalloutBarComponent } from './types';
 import { SlideList } from './components/SlideList';
-import { SlidePreview } from './components/SlidePreview';
+import { SlidePreviewRouter } from './components/SlidePreviewRouter';
 import { SlideEditor } from './components/SlideEditor';
 import { Button } from './components/ui/button';
-import { Download, Save, HelpCircle, Power, Terminal, Search, SquareTerminal, Play } from 'lucide-react';
+import { Download, Save, HelpCircle, Power, Terminal, Search, SquareTerminal, Play, GitBranch } from 'lucide-react';
 import { generatePowerPoint } from './utils/pptx-generator';
-import { parseClaudeResponse, DECKFORGE_SYSTEM_PROMPT } from './utils/claude-generator';
+import { parseClaudeResponse, EMMA_SYSTEM_PROMPT, MINIMAL_SYSTEM_PROMPT } from './utils/claude-generator';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { SetupScreen } from './components/SetupScreen';
 import { SessionTimer } from './components/SessionTimer';
 import { StopServerModal } from './components/StopServerModal';
+import { GitWorkflowModal } from './components/GitWorkflowModal';
+import { BridgeServerWarning } from './components/BridgeServerWarning';
 
 function App() {
   const [slides, setSlides] = useState<Slide[]>([]);
@@ -20,6 +24,7 @@ function App() {
   const [hasCompletedSetup, setHasCompletedSetup] = useState(false);
   const [showStopModal, setShowStopModal] = useState(false);
   const [isSessionExpired, setIsSessionExpired] = useState(false);
+  const [showGitWorkflow, setShowGitWorkflow] = useState(false);
 
   const handleStopServer = useCallback(() => {
     setShowStopModal(true);
@@ -179,7 +184,11 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
     }
   }
 
-  async function handleRequestAIGeneration(prompt: string, referenceImageBase64?: string): Promise<string> {
+  async function handleRequestAIGeneration(
+    prompt: string,
+    referenceImageBase64?: string,
+    systemPrompt: string = MINIMAL_SYSTEM_PROMPT
+  ): Promise<string> {
     const AI_ENDPOINT = 'http://localhost:4000/mcp';
 
     try {
@@ -207,7 +216,7 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             name: 'ask_claude',
             arguments: {
               prompt: finalPrompt,
-              system: DECKFORGE_SYSTEM_PROMPT
+              system: systemPrompt
             }
           }
         }),
@@ -424,6 +433,10 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
         onClose={() => setShowStopModal(false)}
         onConfirm={handleConfirmStop}
       />
+      <GitWorkflowModal
+        isOpen={showGitWorkflow}
+        onClose={() => setShowGitWorkflow(false)}
+      />
 
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
@@ -450,8 +463,8 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             <HelpCircle className="w-3.5 h-3.5 mr-1.5" /> Setup Guide
           </Button>
 
-          <Button variant="outline" size="sm" onClick={handleSaveDeck}>
-            <Save className="w-3.5 h-3.5 mr-1.5" /> Save
+          <Button variant="outline" size="sm" onClick={() => setShowGitWorkflow(true)}>
+            <GitBranch className="w-3.5 h-3.5 mr-1.5" /> Push to GitHub
           </Button>
 
           <Button size="sm" onClick={handleGeneratePowerPoint} className="text-white" style={{ backgroundColor: '#00446A' }}>
@@ -459,6 +472,9 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
           </Button>
         </div>
       </header>
+
+      {/* Bridge Server Warning */}
+      <BridgeServerWarning />
 
       {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
@@ -480,7 +496,7 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
         </div>
 
         <div className="flex-1 min-w-0">
-          <SlidePreview slide={selectedSlide} />
+          <SlidePreviewRouter slide={selectedSlide} />
         </div>
 
         <div className="w-72 flex-shrink-0">

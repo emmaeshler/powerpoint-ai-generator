@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Slide, generateSlideId, generateComponentId } from '../types';
 import { Button } from './ui/button';
 import { Sparkles, Loader2, AlertCircle, RefreshCw, Layers, StickyNote, ChevronDown, Image as ImageIcon, Users, Briefcase, HelpCircle } from 'lucide-react';
 import { smartParsePrompt } from '../utils/smart-parser';
-import { parseClaudeResponse, parseClaudeDeckResponse } from '../utils/claude-generator';
+import { EMMA_SYSTEM_PROMPT, MINIMAL_SYSTEM_PROMPT } from '../utils/claude-generator';
+import { parseSlideResponse, parseDeckResponse } from '../utils/slide-parsers';
 import { DeckBriefingModal } from './DeckBriefingModal';
 import { SkillsModal } from './SkillsModal';
+import { ClarificationModal } from './ClarificationModal';
 import { REFERENCE_SLIDES } from '../constants/referenceSlides';
 import { SKILLS_CONFIG } from '../constants/skillsConfig';
 import { SkillsSelection } from '../types/skills';
@@ -52,7 +54,7 @@ function Tooltip({ text }: { text: string }) {
 interface AISlideGeneratorProps {
   onGenerateSlide: (slide: Slide) => void;
   onGenerateSlides?: (slides: Slide[]) => void;
-  onRequestAIGeneration?: (prompt: string, referenceImageBase64?: string) => Promise<string>;
+  onRequestAIGeneration?: (prompt: string, referenceImageBase64?: string, systemPrompt?: string) => Promise<string>;
 }
 
 export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestAIGeneration }: AISlideGeneratorProps) {
@@ -70,9 +72,66 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
   const [showSkillsModal, setShowSkillsModal] = useState(false);
   const [showAddSkillGuide, setShowAddSkillGuide] = useState(false);
   const [userDefaultBundle, setUserDefaultBundle] = useState<string>('emma-bundle');
+  const [clarifications, setClarifications] = useState<any>(null);
+  const [showClarificationModal, setShowClarificationModal] = useState(false);
 
   const selectedSlide = REFERENCE_SLIDES.find(s => s.id === selectedReference);
   const selectedAudienceObj = AUDIENCES.find(a => a.id === selectedAudience);
+
+  // Compute capabilities based on selected skills
+  const currentCapabilities = useMemo(() => {
+    if (selectedSkills.length === 0) {
+      // No skills selected - enable everything (default behavior)
+      return {
+        layouts: true,
+        referenceSlides: true,
+        audience: true,
+        components: true,
+      };
+    }
+
+    // Find bundles that contain any of the selected skills
+    const activeBundles = SKILLS_CONFIG.bundles.filter(bundle =>
+      bundle.skills.some(skillId => selectedSkills.includes(skillId))
+    );
+
+    // Merge capabilities from all active bundles (OR logic - if ANY bundle supports it, enable it)
+    return activeBundles.reduce((acc, bundle) => ({
+      layouts: acc.layouts || (bundle.capabilities?.layouts ?? true),
+      referenceSlides: acc.referenceSlides || (bundle.capabilities?.referenceSlides ?? true),
+      audience: acc.audience || (bundle.capabilities?.audience ?? true),
+      components: acc.components || (bundle.capabilities?.components ?? true),
+    }), {
+      layouts: false,
+      referenceSlides: false,
+      audience: false,
+      components: false,
+    });
+  }, [selectedSkills]);
+
+  // Determine which system prompt to use based on selected skills
+  const systemPrompt = useMemo(() => {
+    // Check if any of the selected skills belong to Emma's bundle
+    const emmaBundle = SKILLS_CONFIG.bundles.find(b => b.id === 'emma-bundle');
+    const hasEmmaSkills = emmaBundle && selectedSkills.some(skillId =>
+      emmaBundle.skills.includes(skillId)
+    );
+
+    // Use Emma's detailed system prompt if Emma's skills are selected, otherwise minimal
+    return hasEmmaSkills ? EMMA_SYSTEM_PROMPT : MINIMAL_SYSTEM_PROMPT;
+  }, [selectedSkills]);
+
+  // Determine which bundleId to use for parsing slides
+  const currentBundleId = useMemo(() => {
+    if (selectedSkills.length === 0) return 'emma-bundle'; // default to Emma
+
+    // Find which bundle owns the selected skills
+    const activeBundle = SKILLS_CONFIG.bundles.find(bundle =>
+      bundle.skills.some(skillId => selectedSkills.includes(skillId))
+    );
+
+    return activeBundle?.id || 'generic';
+  }, [selectedSkills]);
 
   // Load skills selection from localStorage on mount
   useEffect(() => {
@@ -115,11 +174,14 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
         .map(skillId => SKILLS_CONFIG.skills.find(s => s.id === skillId))
         .filter(Boolean);
 
-      parts.push(`\nREFERENCE SKILL FILES (${selectedSkillFiles.length}):`);
+      parts.push(`\n\n# SKILL FILES TO USE\n`);
+      parts.push(`Read and apply the rules from these ${selectedSkillFiles.length} skill file(s):\n`);
       selectedSkillFiles.forEach(skill => {
-        parts.push(`- ${skill!.label} (${skill!.file}): ${skill!.description}`);
+        parts.push(`\n## ${skill!.label}`);
+        parts.push(`File: ${skill!.file}`);
+        parts.push(`Purpose: ${skill!.description}`);
       });
-      parts.push('\nPrioritize the rules and patterns defined in these skill files when generating the slide.');
+      parts.push(`\n**IMPORTANT**: Read each skill file listed above and apply its rules when generating the slide. The files are already on your local system at the paths shown.`);
     }
     return parts.join('');
   }
@@ -153,6 +215,29 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
     setIsGenerating(false);
   };
 
+  const handleClarificationComplete = async (enrichedPrompt: string) => {
+    setShowClarificationModal(false);
+    setIsGenerating(true);
+    setError(null);
+    setFallbackUsed(false);
+
+    // Regenerate with clarifications
+    if (onRequestAIGeneration) {
+      try {
+        const response = await onRequestAIGeneration(enrichPrompt(enrichedPrompt), undefined, systemPrompt);
+        const slide = parseSlideResponse(response, currentBundleId);
+        slide.prompt = enrichedPrompt;
+        onGenerateSlide(slide);
+        setPrompt('');
+      } catch (err) {
+        console.warn('[AISlideGenerator] Generation failed after clarification:', err);
+        setError(err instanceof Error ? err.message : 'Unknown error');
+      }
+    }
+
+    setIsGenerating(false);
+  };
+
   const handleGenerateSlide = async () => {
     if (onRequestAIGeneration) {
       try {
@@ -164,9 +249,48 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
           referenceImageBase64 = selectedRefSlide.imageBase64;
         }
 
-        const response = await onRequestAIGeneration(enrichPrompt(prompt.trim()), referenceImageBase64);
-        const slide = parseClaudeResponse(response);
+        // Debug logging - track what's being sent to Claude
+        const enrichedPrompt = enrichPrompt(prompt.trim());
+        console.log('[Skill Isolation Debug]', {
+          selectedSkills,
+          currentBundleId,
+          systemPromptPreview: systemPrompt.substring(0, 100) + '...',
+          enrichedPromptPreview: enrichedPrompt.substring(0, 500) + '...',
+          hasReferenceImage: !!referenceImageBase64
+        });
+
+        const response = await onRequestAIGeneration(enrichedPrompt, referenceImageBase64, systemPrompt);
+
+        // Check if response is a clarification request
+        try {
+          const parsed = JSON.parse(response);
+          if (parsed.clarifications && Array.isArray(parsed.clarifications)) {
+            // Add IDs to clarification questions
+            const questionsWithIds = parsed.clarifications.map((q: any, idx: number) => ({
+              ...q,
+              id: q.id || `q${idx + 1}`
+            }));
+            setClarifications(questionsWithIds);
+            setShowClarificationModal(true);
+            return; // Don't try to parse as slide
+          }
+        } catch (e) {
+          // Not JSON or not clarifications, continue to slide parsing
+        }
+
+        const slide = parseSlideResponse(response, currentBundleId);
         slide.prompt = prompt.trim();
+
+        // Debug logging - track what was parsed
+        console.log('[Response Debug]', {
+          responseLength: response.length,
+          parsedBundleId: slide.bundleId,
+          parsedRenderType: slide.renderType,
+          hasContent: !!slide.content,
+          hasSlotContent: !!slide.slotContent,
+          templateId: slide.templateId
+        });
+
         onGenerateSlide(slide);
         setPrompt('');
       } catch (err) {
@@ -225,8 +349,8 @@ ${enrichPrompt(enrichedPrompt)}
 
 Remember: Return ONLY the JSON array. No explanation, no markdown code blocks.`;
 
-        const response = await onRequestAIGeneration(deckInstructions, referenceImageBase64);
-        const slides = stampGroup(parseClaudeDeckResponse(response));
+        const response = await onRequestAIGeneration(deckInstructions, referenceImageBase64, systemPrompt);
+        const slides = stampGroup(parseDeckResponse(response, currentBundleId));
         if (onGenerateSlides) {
           onGenerateSlides(slides);
         } else {
@@ -316,7 +440,8 @@ Remember: Return ONLY the JSON array. No explanation, no markdown code blocks.`;
 
       {/* Audience & Skill selectors — stacked */}
       <div className="mt-2 space-y-2">
-        {/* Audience selector */}
+        {/* Audience selector - Only show if capabilities support it */}
+        {currentCapabilities.audience && (
         <div className="relative">
           <button
             onClick={() => { setShowAudienceDropdown(!showAudienceDropdown); setShowSkillDropdown(false); setShowReferenceDropdown(false); }}
@@ -358,6 +483,7 @@ Remember: Return ONLY the JSON array. No explanation, no markdown code blocks.`;
             </div>
           )}
         </div>
+        )}
 
         {/* Skill selector - modal trigger */}
         <div className="relative">
@@ -386,8 +512,8 @@ Remember: Return ONLY the JSON array. No explanation, no markdown code blocks.`;
         </div>
       </div>
 
-      {/* Reference Layout Selection - Only for Single Slide mode */}
-      {mode === 'slide' && (
+      {/* Reference Layout Selection - Only for Single Slide mode and if capabilities support it */}
+      {mode === 'slide' && currentCapabilities.referenceSlides && (
         <div className="mt-2">
           {/* Dropdown Trigger */}
           <button
@@ -545,6 +671,17 @@ Remember: Return ONLY the JSON array. No explanation, no markdown code blocks.`;
           }}
           userDefaultBundle={userDefaultBundle}
           onShowGuide={() => setShowAddSkillGuide(true)}
+        />
+      )}
+
+      {/* Clarification Modal */}
+      {showClarificationModal && clarifications && (
+        <ClarificationModal
+          isOpen={showClarificationModal}
+          questions={clarifications}
+          originalPrompt={prompt}
+          onClose={() => setShowClarificationModal(false)}
+          onComplete={handleClarificationComplete}
         />
       )}
 
