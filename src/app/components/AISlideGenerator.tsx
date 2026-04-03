@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { Sparkles, Loader2, AlertCircle, RefreshCw, Layers, StickyNote, ChevronDown, Image as ImageIcon, Users, Briefcase, HelpCircle } from 'lucide-react';
 import { smartParsePrompt } from '../utils/smart-parser';
 import { parseClaudeResponse, parseClaudeDeckResponse } from '../utils/claude-generator';
+import { parseSlideResponse, parseDeckResponse } from '../utils/slide-parsers';
 import { DeckBriefingModal } from './DeckBriefingModal';
 import { SkillsModal } from './SkillsModal';
 import { REFERENCE_SLIDES } from '../constants/referenceSlides';
@@ -53,9 +54,11 @@ interface AISlideGeneratorProps {
   onGenerateSlide: (slide: Slide) => void;
   onGenerateSlides?: (slides: Slide[]) => void;
   onRequestAIGeneration?: (prompt: string, referenceImageBase64?: string) => Promise<string>;
+  onBundleChange?: (bundleId: string) => void;
+  onGeneratingChange?: (state: { isGenerating: boolean; mode: 'slide' | 'deck'; prompt: string } | null) => void;
 }
 
-export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestAIGeneration }: AISlideGeneratorProps) {
+export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestAIGeneration, onBundleChange, onGeneratingChange }: AISlideGeneratorProps) {
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +107,30 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
     }
   }, [selectedSkills, userDefaultBundle]);
 
+  // Notify parent when active bundle changes
+  useEffect(() => {
+    if (onBundleChange) {
+      let bundleId = userDefaultBundle;
+      if (selectedSkills.length > 0) {
+        const firstSkill = SKILLS_CONFIG.skills.find(s => s.id === selectedSkills[0]);
+        if (firstSkill?.bundleId) bundleId = firstSkill.bundleId;
+      }
+      onBundleChange(bundleId);
+    }
+  }, [selectedSkills, userDefaultBundle, onBundleChange]);
+
+  /** Get the active bundle ID from selected skills */
+  function getActiveBundleId(): string {
+    if (selectedSkills.length === 0) return 'emma-bundle'; // default
+
+    // Find the bundle ID from the first selected skill
+    const firstSkill = SKILLS_CONFIG.skills.find(s => s.id === selectedSkills[0]);
+    if (firstSkill?.bundleId) return firstSkill.bundleId;
+
+    // Fall back to user's default bundle
+    return userDefaultBundle;
+  }
+
   /** Enrich a user prompt with audience & skill context */
   function enrichPrompt(basePrompt: string): string {
     const parts = [basePrompt];
@@ -137,8 +164,10 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
     setIsGenerating(true);
     setError(null);
     setFallbackUsed(false);
+    onGeneratingChange?.({ isGenerating: true, mode: 'slide', prompt: prompt.trim() });
     await handleGenerateSlide();
     setIsGenerating(false);
+    onGeneratingChange?.(null);
   };
 
   const handleBriefingComplete = async (enrichedPrompt: string, referenceImageBase64?: string) => {
@@ -146,11 +175,13 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
     setIsGenerating(true);
     setError(null);
     setFallbackUsed(false);
+    onGeneratingChange?.({ isGenerating: true, mode: 'deck', prompt: prompt.trim() });
 
     // Use enriched prompt for deck generation with optional reference image
     await handleGenerateDeck(enrichedPrompt, referenceImageBase64);
 
     setIsGenerating(false);
+    onGeneratingChange?.(null);
   };
 
   const handleGenerateSlide = async () => {
@@ -165,7 +196,8 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
         }
 
         const response = await onRequestAIGeneration(enrichPrompt(prompt.trim()), referenceImageBase64);
-        const slide = parseClaudeResponse(response);
+        const bundleId = getActiveBundleId();
+        const slide = parseSlideResponse(response, bundleId);
         slide.prompt = prompt.trim();
         onGenerateSlide(slide);
         setPrompt('');
@@ -226,7 +258,8 @@ ${enrichPrompt(enrichedPrompt)}
 Remember: Return ONLY the JSON array. No explanation, no markdown code blocks.`;
 
         const response = await onRequestAIGeneration(deckInstructions, referenceImageBase64);
-        const slides = stampGroup(parseClaudeDeckResponse(response));
+        const bundleId = getActiveBundleId();
+        const slides = stampGroup(parseDeckResponse(response, bundleId));
         if (onGenerateSlides) {
           onGenerateSlides(slides);
         } else {
@@ -266,13 +299,6 @@ Remember: Return ONLY the JSON array. No explanation, no markdown code blocks.`;
 
   return (
     <div className="p-4 bg-white border-b border-gray-200">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4" style={{ color: '#00446A' }} />
-          <h3 className="text-sm" style={{ color: '#25282A' }}>Create a single slide or a full deck?</h3>
-        </div>
-      </div>
-
       {/* Mode toggle: Slide vs Deck */}
       <div className="mb-2 flex rounded-lg overflow-hidden border" style={{ borderColor: '#D0D3D4' }}>
         <button

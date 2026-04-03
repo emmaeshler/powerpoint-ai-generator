@@ -94,31 +94,92 @@ fi
 
 success "Dependencies installed!"
 
-# ── Step 3: Environment configuration ────────────────────────
-header "Step 3 of 4 — Checking environment configuration..."
+# ── Step 3: Environment / credentials ────────────────────────
+header "Step 3 of 5 — Checking credentials..."
 
-if [ -f ".env.local" ]; then
-    success ".env.local already exists."
-    info "If you need to update environment variables, edit .env.local manually."
+if [ -f ".env" ] && grep -q "FOUNDRY_TARGET_URI=" .env && grep -q "MODEL=" .env; then
+    # Both vars present — check they're not empty
+    FOUNDRY_VAL=$(grep "^FOUNDRY_TARGET_URI=" .env | cut -d= -f2-)
+    MODEL_VAL=$(grep "^MODEL=" .env | cut -d= -f2-)
+    if [ -n "$FOUNDRY_VAL" ] && [ -n "$MODEL_VAL" ]; then
+        success ".env found with credentials — skipping setup."
+    else
+        warn ".env exists but one or more values are blank."
+        warn "The bridge server will prompt you for them when it starts."
+    fi
 else
-    info "No .env.local file found — creating a template..."
-    cat > .env.local << 'ENVEOF'
-# ============================================================
-#  Emma's Awesome PPT Generator – Environment Variables
-#  Fill in the values below, then re-run: npm start
-# ============================================================
+    if [ ! -f ".env" ]; then
+        info "No .env file found — creating one from .env.example..."
+        cp .env.example .env
+        success "Created .env (from .env.example)."
+    fi
+    echo ""
+    warn "FOUNDRY_TARGET_URI and/or MODEL are not set in .env."
+    warn "The bridge server will ask for these interactively"
+    warn "the first time you run:  node claude-bridge-server.js"
+    echo ""
+    info "You can also fill them in now by editing .env directly."
+    echo ""
 
-# Add any required API keys or config below:
-# VITE_API_KEY=your_api_key_here
+    read -p "   Would you like to enter them now? (y/N): " ENTER_NOW
+    if [[ "$ENTER_NOW" =~ ^[Yy]$ ]]; then
+        read -p "   FOUNDRY_TARGET_URI (full Azure endpoint URL): " FOUNDRY_INPUT
+        read -p "   MODEL (e.g. claude-3-5-sonnet): " MODEL_INPUT
 
-ENVEOF
-    success "Created .env.local template."
-    warn "You may need to add API keys or config values to .env.local"
-    warn "Ask the project owner if you're unsure what values to use."
+        if [ -n "$FOUNDRY_INPUT" ]; then
+            # Replace or append
+            if grep -q "^FOUNDRY_TARGET_URI=" .env; then
+                sed -i.bak "s|^FOUNDRY_TARGET_URI=.*|FOUNDRY_TARGET_URI=$FOUNDRY_INPUT|" .env && rm -f .env.bak
+            else
+                echo "FOUNDRY_TARGET_URI=$FOUNDRY_INPUT" >> .env
+            fi
+        fi
+        if [ -n "$MODEL_INPUT" ]; then
+            if grep -q "^MODEL=" .env; then
+                sed -i.bak "s|^MODEL=.*|MODEL=$MODEL_INPUT|" .env && rm -f .env.bak
+            else
+                echo "MODEL=$MODEL_INPUT" >> .env
+            fi
+        fi
+        success "Credentials saved to .env."
+    fi
 fi
 
-# ── Step 4: Start the development server ─────────────────────
-header "Step 4 of 4 — Starting the development server..."
+# ── Step 4: Azure authentication check ───────────────────────
+header "Step 4 of 5 — Checking Azure authentication..."
+
+if command -v az &> /dev/null; then
+    AZ_ACCOUNT=$(az account show 2>/dev/null | grep '"name"' | head -1 || true)
+    if [ -n "$AZ_ACCOUNT" ]; then
+        success "Azure CLI is authenticated."
+        info "$AZ_ACCOUNT"
+    else
+        warn "Azure CLI is installed but you are not logged in."
+        echo ""
+        read -p "   Run 'az login' now? (y/N): " AZ_LOGIN_NOW
+        if [[ "$AZ_LOGIN_NOW" =~ ^[Yy]$ ]]; then
+            az login
+        else
+            warn "Skipped — AI generation will fail until you run: az login"
+        fi
+    fi
+else
+    warn "Azure CLI (az) not found. It's required for Azure authentication."
+    info "Install from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+    info "Or set AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID in .env instead."
+fi
+
+# ── Step 5: Start the development server ─────────────────────
+header "Step 5 of 5 — Starting the development server..."
+
+echo -e "  ${YELLOW}Note:${NC} This starts the ${BOLD}web app only${NC}."
+echo -e "  You also need to start the ${BOLD}bridge server${NC} in a separate terminal:"
+echo ""
+echo -e "    ${CYAN}node claude-bridge-server.js${NC}"
+echo ""
+echo -e "  The bridge server handles AI generation. The app will show a"
+echo -e "  yellow warning banner if it's not running."
+echo ""
 
 # Find an available port (default 5173 for Vite)
 DEFAULT_PORT=5173

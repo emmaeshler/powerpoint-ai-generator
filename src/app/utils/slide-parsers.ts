@@ -4,26 +4,7 @@
 import { Slide, SlideComponent, CalloutBarComponent, generateSlideId, generateComponentId } from '../types';
 import { getTemplate } from '../layout-templates';
 
-// ─── PARSER REGISTRY ──────────────────────────────────────────
-
 type SlideParser = (response: string, bundleId?: string) => Slide;
-
-const PARSERS: Record<string, SlideParser> = {
-  'emma-bundle': parseEmmaSlide,
-  'wills-bundle': parseGenericSlide,
-  'test-bundle': parseGenericSlide,
-  'generic': parseGenericSlide,
-};
-
-/**
- * Main entry point - routes to the correct parser based on bundleId
- */
-export function parseSlideResponse(response: string, bundleId?: string): Slide {
-  const parserId = bundleId || 'emma-bundle'; // default to Emma for backward compatibility
-  const parser = PARSERS[parserId] || parseGenericSlide;
-
-  return parser(response, bundleId);
-}
 
 // ─── EMMA BUNDLE PARSER ───────────────────────────────────────
 
@@ -101,6 +82,42 @@ function parseEmmaSlide(response: string, bundleId?: string): Slide {
     console.error('[Emma Parser] Response was:', response);
     throw new Error('Failed to parse Emma slide JSON');
   }
+}
+
+// ─── WILL'S BUNDLE PARSER ─────────────────────────────────────
+
+/**
+ * Parser for Will's bundle - handles PptxGenJS code (native format)
+ */
+function parseWillsSlide(response: string, bundleId?: string): Slide {
+  const cleaned = response.trim();
+
+  // Detect if this is PptxGenJS code (Will's native format)
+  const isPptxGenJS =
+    cleaned.includes('module.exports') ||
+    cleaned.includes('pres.addSlide') ||
+    cleaned.includes('pptxgenjs') ||
+    cleaned.includes('slide.addShape') ||
+    cleaned.includes('slide.addText');
+
+  if (isPptxGenJS) {
+    // Store PptxGenJS code - will be executed by WillsSlidePreview
+    return {
+      id: generateSlideId(),
+      title: 'Generated Slide',
+      soWhat: '',
+      description: '',
+      content: {
+        pptxCode: cleaned,
+        rawOutput: cleaned
+      },
+      bundleId: 'wills-bundle',
+      renderType: 'generic',
+    };
+  }
+
+  // Otherwise try to parse as JSON (fallback)
+  return parseGenericSlide(response, bundleId);
 }
 
 // ─── PFP BUNDLE PARSER ────────────────────────────────────────
@@ -184,12 +201,34 @@ function parsePFPSlide(response: string, bundleId?: string): Slide {
  * Generic fallback parser - tries to extract basic slide information
  */
 function parseGenericSlide(response: string, bundleId?: string): Slide {
-  // Strip markdown code blocks
   let cleaned = response.trim();
 
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '');
-    cleaned = cleaned.replace(/\n?```\s*$/i, '');
+  // First, try to extract JSON from markdown code blocks
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim();
+  } else if (!cleaned.startsWith('{')) {
+    // If no code block and doesn't start with {, try to find JSON object
+    // Use a more precise regex that matches balanced braces
+    const jsonStart = cleaned.indexOf('{');
+    if (jsonStart !== -1) {
+      // Find the matching closing brace
+      let depth = 0;
+      let jsonEnd = -1;
+      for (let i = jsonStart; i < cleaned.length; i++) {
+        if (cleaned[i] === '{') depth++;
+        if (cleaned[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            jsonEnd = i;
+            break;
+          }
+        }
+      }
+      if (jsonEnd !== -1) {
+        cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+      }
+    }
   }
 
   cleaned = cleaned.trim();
@@ -210,9 +249,29 @@ function parseGenericSlide(response: string, bundleId?: string): Slide {
     return slide;
   } catch (error) {
     console.error('[Generic Parser] Failed to parse JSON:', error);
-    console.error('[Generic Parser] Response was:', response);
+    console.error('[Generic Parser] Cleaned string was:', cleaned.substring(0, 500));
+    console.error('[Generic Parser] Full response was:', response.substring(0, 1000));
     throw new Error('Failed to parse slide JSON');
   }
+}
+
+// ─── PARSER REGISTRY ──────────────────────────────────────────
+
+const PARSERS: Record<string, SlideParser> = {
+  'emma-bundle': parseEmmaSlide,
+  'wills-bundle': parseWillsSlide,
+  'test-bundle': parseGenericSlide,
+  'generic': parseGenericSlide,
+};
+
+/**
+ * Main entry point - routes to the correct parser based on bundleId
+ */
+export function parseSlideResponse(response: string, bundleId?: string): Slide {
+  const parserId = bundleId || 'emma-bundle'; // default to Emma for backward compatibility
+  const parser = PARSERS[parserId] || parseGenericSlide;
+
+  return parser(response, bundleId);
 }
 
 // ─── DECK PARSERS ─────────────────────────────────────────────

@@ -22,6 +22,8 @@ interface SlideListProps {
   onEditSlide?: (slideId: string, editPrompt: string) => void;
   isEditingSlide?: boolean;
   onAddBlankSlide?: () => void;
+  onBundleChange?: (bundleId: string) => void;
+  onGeneratingChange?: (state: { isGenerating: boolean; mode: 'slide' | 'deck'; prompt: string } | null) => void;
 }
 
 export function SlideList({
@@ -38,6 +40,8 @@ export function SlideList({
   onEditSlide,
   isEditingSlide,
   onAddBlankSlide,
+  onBundleChange,
+  onGeneratingChange,
 }: SlideListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -105,6 +109,8 @@ export function SlideList({
         onGenerateSlides={onGenerateSlides}
         onRequestAIGeneration={onRequestAIGeneration}
         onStopGeneration={onStopGeneration}
+        onBundleChange={onBundleChange}
+        onGeneratingChange={onGeneratingChange}
       />
 
       <div className="p-4 border-b border-gray-200">

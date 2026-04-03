@@ -8,7 +8,12 @@
 import vm from 'vm';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import MockPresentation from './pptxgen-sandbox.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // INSIGHT color palette (from Will's slide-lib)
 const INSIGHT_COLORS = {
@@ -68,6 +73,7 @@ async function executeWillsCode(code) {
     const slideLibCode = fs.readFileSync(slideLibPath, 'utf8');
 
     // Create sandbox context
+    const skillDir = path.dirname(slideLibPath);
     const sandbox = {
       // Module system
       module: { exports: {} },
@@ -81,6 +87,8 @@ async function executeWillsCode(code) {
         env: process.env,
         cwd: () => process.cwd()
       },
+      __dirname: skillDir,  // Directory where slide-lib.js lives
+      __filename: slideLibPath,  // Full path to slide-lib.js
 
       // Common globals
       setTimeout: setTimeout,
@@ -186,27 +194,27 @@ function createSafeRequire() {
       return MockPresentation;
     }
 
-    // Allow specific safe modules
-    const allowedModules = ['react', 'react-dom/server', 'sharp', 'fs', 'path'];
+    // Return actual Node.js built-in modules
+    if (moduleName === 'fs') {
+      return fs;
+    }
+    if (moduleName === 'path') {
+      return path;
+    }
 
-    if (allowedModules.includes(moduleName)) {
-      try {
-        // Note: Dynamic imports would be async, so we'll handle these modules differently
-        // For now, return mocks for unavailable modules
-        throw new Error('Module not available in ES module context');
-      } catch (err) {
-        console.warn(`Module ${moduleName} not available:`, err.message);
-        // Return minimal mock for unavailable modules
-        if (moduleName === 'react') {
-          return { createElement: () => ({}) };
-        }
-        if (moduleName === 'react-dom/server') {
-          return { renderToStaticMarkup: () => '<svg></svg>' };
-        }
-        if (moduleName === 'sharp') {
-          return () => ({ png: () => ({ toBuffer: () => Promise.resolve(Buffer.from('')) }) });
-        }
-        return {};
+    // Allow specific safe modules with mocks
+    const mockedModules = ['react', 'react-dom/server', 'sharp'];
+
+    if (mockedModules.includes(moduleName)) {
+      // Return minimal mocks for unavailable modules
+      if (moduleName === 'react') {
+        return { createElement: () => ({}) };
+      }
+      if (moduleName === 'react-dom/server') {
+        return { renderToStaticMarkup: () => '<svg></svg>' };
+      }
+      if (moduleName === 'sharp') {
+        return () => ({ png: () => ({ toBuffer: () => Promise.resolve(Buffer.from('')) }) });
       }
     }
 

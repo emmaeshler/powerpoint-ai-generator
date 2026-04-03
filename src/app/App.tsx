@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Slide, generateSlideId, generateComponentId, CalloutBarComponent } from './types';
 import { SlideList } from './components/SlideList';
 import { SlidePreviewRouter } from './components/SlidePreviewRouter';
 import { SlideEditor } from './components/SlideEditor';
 import { Button } from './components/ui/button';
-import { Download, Save, HelpCircle, Power, Terminal, Search, SquareTerminal, Play, GitBranch } from 'lucide-react';
+import { Download, Save, HelpCircle, Power, Terminal, Search, SquareTerminal, Play, GitBranch, FileOutput, Braces } from 'lucide-react';
 import { generatePowerPoint } from './utils/pptx-generator';
-import { parseClaudeResponse, EMMA_SYSTEM_PROMPT, MINIMAL_SYSTEM_PROMPT } from './utils/claude-generator';
+import { parseClaudeResponse, EMMA_SYSTEM_PROMPT, MINIMAL_SYSTEM_PROMPT, WILLS_SYSTEM_PROMPT } from './utils/claude-generator';
+import { parseSlideResponse } from './utils/slide-parsers';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { SetupScreen } from './components/SetupScreen';
@@ -17,6 +18,9 @@ import { StopServerModal } from './components/StopServerModal';
 import { GitWorkflowModal } from './components/GitWorkflowModal';
 import { BridgeServerWarning } from './components/BridgeServerWarning';
 import { PPTXPreviewModal } from './components/PPTXPreviewModal';
+import { PreviewModePromptModal } from './components/PreviewModePromptModal';
+import { GenerationLoadingView } from './components/GenerationLoadingView';
+import { SKILLS_CONFIG } from './constants/skillsConfig';
 
 function App() {
   const [slides, setSlides] = useState<Slide[]>([]);
@@ -27,8 +31,60 @@ function App() {
   const [isSessionExpired, setIsSessionExpired] = useState(false);
   const [showGitWorkflow, setShowGitWorkflow] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [useUniversalPreview, setUseUniversalPreview] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'pptx' | 'json'>('pptx');
+  const [activeBundleId, setActiveBundleId] = useState<string>('emma-bundle');
+  const [showPreviewPrompt, setShowPreviewPrompt] = useState(false);
+  const [generationState, setGenerationState] = useState<{ isGenerating: boolean; mode: 'slide' | 'deck'; prompt: string } | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Resolve preview mode whenever active bundle changes
+  useEffect(() => {
+    async function resolvePreviewMode() {
+      // 1. Check backend preference for this bundle
+      try {
+        const res = await fetch('http://localhost:4000/api/preferences');
+        if (res.ok) {
+          const data = await res.json();
+          const saved = data.preferences?.[`previewMode_${activeBundleId}`];
+          if (saved === 'pptx' || saved === 'json') {
+            setPreviewMode(saved);
+            return;
+          }
+        }
+      } catch {
+        // Bridge server may not be running — fall through
+      }
+
+      // 2. Check bundle config default
+      const bundle = SKILLS_CONFIG.bundles.find(b => b.id === activeBundleId);
+      if (bundle?.defaultPreview) {
+        setPreviewMode(bundle.defaultPreview);
+        return;
+      }
+
+      // 3. No default found — prompt the user
+      setShowPreviewPrompt(true);
+    }
+
+    resolvePreviewMode();
+  }, [activeBundleId]);
+
+  async function handlePreviewModeChosen(mode: 'pptx' | 'json', remember: boolean) {
+    setPreviewMode(mode);
+    setShowPreviewPrompt(false);
+
+    if (remember) {
+      try {
+        await fetch('http://localhost:4000/api/preferences', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [`previewMode_${activeBundleId}`]: mode }),
+        });
+      } catch {
+        // Non-critical — preference just won't persist
+      }
+    }
+  }
 
   const handleStopServer = useCallback(() => {
     setShowStopModal(true);
@@ -166,7 +222,8 @@ User's edit request: ${editPrompt}
 Please return the updated slide JSON that incorporates the requested changes. Maintain the same structure and only modify what's necessary to fulfill the edit request. Return ONLY the JSON, no markdown formatting.`;
 
       const response = await handleRequestAIGeneration(fullPrompt);
-      const updatedSlideData = parseClaudeResponse(response);
+      const bundleId = slideToEdit.bundleId || 'emma-bundle'; // Use slide's bundle or default to Emma
+      const updatedSlideData = parseSlideResponse(response, bundleId);
 
       const updatedSlide: Slide = {
         ...slideToEdit,
@@ -191,9 +248,20 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
   async function handleRequestAIGeneration(
     prompt: string,
     referenceImageBase64?: string,
-    systemPrompt: string = MINIMAL_SYSTEM_PROMPT
+    systemPrompt?: string
   ): Promise<string> {
     const AI_ENDPOINT = 'http://localhost:4000/mcp';
+
+    // Use appropriate system prompt based on active bundle
+    let defaultSystemPrompt: string | undefined;
+    if (activeBundleId === 'emma-bundle') {
+      defaultSystemPrompt = MINIMAL_SYSTEM_PROMPT; // Forces JSON output
+    } else if (activeBundleId === 'wills-bundle') {
+      defaultSystemPrompt = WILLS_SYSTEM_PROMPT; // Guides PptxGenJS code generation
+    } else {
+      defaultSystemPrompt = undefined; // No override for other bundles
+    }
+    const finalSystemPrompt = systemPrompt !== undefined ? systemPrompt : defaultSystemPrompt;
 
     try {
       const controller = new AbortController();
@@ -221,7 +289,7 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             name: 'ask_claude',
             arguments: {
               prompt: finalPrompt,
-              system: systemPrompt
+              system: finalSystemPrompt
             }
           }
         }),
@@ -564,6 +632,13 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
       {/* Bridge Server Warning */}
       <BridgeServerWarning />
 
+      {/* Preview mode prompt modal */}
+      <PreviewModePromptModal
+        isOpen={showPreviewPrompt}
+        bundleName={SKILLS_CONFIG.bundles.find(b => b.id === activeBundleId)?.name ?? activeBundleId}
+        onChoose={handlePreviewModeChosen}
+      />
+
       {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
         <div className="w-60 flex-shrink-0">
@@ -581,42 +656,123 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             onStopGeneration={handleStopGeneration}
             onEditSlide={handleEditSlide}
             isEditingSlide={isEditingSlide}
+            onBundleChange={setActiveBundleId}
+            onGeneratingChange={setGenerationState}
           />
         </div>
 
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Preview mode toggle */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
-            <label className="flex items-center gap-2 cursor-pointer text-sm">
-              <input
-                type="checkbox"
-                checked={useUniversalPreview}
-                onChange={(e) => setUseUniversalPreview(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="font-medium text-gray-700">
-                Show PPTX Preview (true output)
-              </span>
-            </label>
-            {useUniversalPreview && (
-              <span className="text-xs text-gray-500">
-                Generates actual PPTX for preview
-              </span>
-            )}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-gray-50">
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-gray-200" style={{ minWidth: 0 }}>
+              <button
+                onClick={() => setPreviewMode('pptx')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                style={{
+                  backgroundColor: previewMode === 'pptx' ? '#00446A' : 'transparent',
+                  color: previewMode === 'pptx' ? '#fff' : '#6B7280',
+                }}
+              >
+                <FileOutput className="w-3.5 h-3.5" />
+                PPTX Output
+              </button>
+              <button
+                onClick={() => setPreviewMode('json')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                style={{
+                  backgroundColor: previewMode === 'json' ? '#6B21A8' : 'transparent',
+                  color: previewMode === 'json' ? '#fff' : '#6B7280',
+                }}
+              >
+                <Braces className="w-3.5 h-3.5" />
+                JSON View
+              </button>
+            </div>
+            <span className="text-[11px] text-gray-400 ml-3">
+              {previewMode === 'pptx' ? 'True PPTX render' : 'Raw slide data'}
+            </span>
           </div>
 
           {/* Preview area */}
           <div className="flex-1 overflow-auto p-4 flex items-center justify-center">
-            <SlidePreviewRouter
-              slide={selectedSlide}
-              useUniversalPreview={useUniversalPreview}
-            />
+            {generationState?.isGenerating ? (
+              <GenerationLoadingView
+                mode={generationState.mode}
+                prompt={generationState.prompt}
+              />
+            ) : previewMode === 'json' ? (
+              selectedSlide ? (
+                selectedSlide.bundleId === 'emma-bundle' ? (
+                  <div className="w-full max-w-3xl">
+                    <pre
+                      className="text-xs rounded-xl p-5 overflow-auto leading-relaxed"
+                      style={{
+                        backgroundColor: '#1E1B4B',
+                        color: '#C4B5FD',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        maxHeight: 'calc(100vh - 200px)',
+                      }}
+                    >
+                      {JSON.stringify(selectedSlide, null, 2)}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="w-full max-w-2xl">
+                    <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-8">
+                      <div className="flex items-start gap-4">
+                        <div className="flex-shrink-0 w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                          <Braces className="w-6 h-6 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-blue-900 mb-2">
+                            JSON View is for Emma's Bundle
+                          </h3>
+                          <p className="text-sm text-blue-800 mb-4">
+                            You're viewing a slide from <strong>{SKILLS_CONFIG.bundles.find(b => b.id === selectedSlide.bundleId)?.name || selectedSlide.bundleId}</strong>.
+                            JSON editing is only available for Emma's bundle, which uses a structured JSON format for slide composition.
+                          </p>
+                          <div className="space-y-3">
+                            <div>
+                              <p className="text-sm font-medium text-blue-900 mb-1.5">To edit slides with JSON:</p>
+                              <ol className="text-sm text-blue-800 space-y-1 ml-4 list-decimal">
+                                <li>Select skills from <strong>Emma's Bundle</strong> in the sidebar</li>
+                                <li>Generate a slide using Emma's layout system</li>
+                                <li>Use the JSON editor on the right to customize</li>
+                              </ol>
+                            </div>
+                            <div className="pt-3 border-t border-blue-200">
+                              <p className="text-sm font-medium text-blue-900 mb-1.5">For this slide:</p>
+                              <button
+                                onClick={() => setPreviewMode('pptx')}
+                                className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                              >
+                                Switch to PPTX Output →
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="text-gray-400 text-sm">No slide selected</div>
+              )
+            ) : (
+              <SlidePreviewRouter
+                slide={selectedSlide}
+                useUniversalPreview={previewMode === 'pptx'}
+              />
+            )}
           </div>
         </div>
 
-        <div className="w-72 flex-shrink-0">
-          <SlideEditor slide={selectedSlide} onUpdateSlide={handleUpdateSlide} />
-        </div>
+        {/* Only show JSON editor for Emma's bundle */}
+        {selectedSlide?.bundleId === 'emma-bundle' && (
+          <div className="w-72 flex-shrink-0">
+            <SlideEditor slide={selectedSlide} onUpdateSlide={handleUpdateSlide} />
+          </div>
+        )}
       </div>
     </div>
   );

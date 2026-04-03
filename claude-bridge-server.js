@@ -39,6 +39,86 @@ app.use(express.json({ limit: '50mb' }));
 
 let requestCounter = 0;
 
+// ── Credential state (updated at startup and on demand) ──────────────────────
+let credentialStatus = {
+  state: 'unchecked', // 'unchecked' | 'ok' | 'missing_env' | 'auth_failed'
+  missingVars: [],
+  azureError: null,
+};
+
+/**
+ * Try to get an Azure token and update credentialStatus.
+ * Called once at startup and again after /setup-credentials saves new values.
+ */
+async function checkAzureAuth() {
+  const required = ['FOUNDRY_TARGET_URI', 'MODEL'];
+  const missing = required.filter(v => !process.env[v]);
+
+  if (missing.length > 0) {
+    credentialStatus = { state: 'missing_env', missingVars: missing, azureError: null };
+    return;
+  }
+
+  try {
+    const credential = new DefaultAzureCredential();
+    await credential.getToken('https://cognitiveservices.azure.com/.default');
+    credentialStatus = { state: 'ok', missingVars: [], azureError: null };
+    console.log('✅ Azure authentication confirmed\n');
+  } catch (err) {
+    credentialStatus = { state: 'auth_failed', missingVars: [], azureError: err.message };
+    console.warn('⚠️  Azure authentication failed:', err.message);
+  }
+}
+
+/**
+ * Interactive terminal prompt for any missing .env variables.
+ * Saves answers to .env so the next run skips this step.
+ */
+async function promptForMissingCredentials() {
+  const required = {
+    FOUNDRY_TARGET_URI: 'Azure Foundry endpoint URL  (e.g. https://your-resource.openai.azure.com/...)',
+    MODEL:              'Model name                  (e.g. claude-3-5-sonnet)',
+  };
+
+  const missing = Object.entries(required).filter(([k]) => !process.env[k]);
+  if (missing.length === 0) return;
+
+  console.log('\n╔══════════════════════════════════════════════════════════╗');
+  console.log('║  First-time setup — credentials needed                  ║');
+  console.log('╚══════════════════════════════════════════════════════════╝\n');
+  console.log('  These values will be saved to .env so you only need to');
+  console.log('  enter them once.\n');
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q) => new Promise(resolve => rl.question(q, resolve));
+
+  const newLines = [];
+  for (const [varName, hint] of missing) {
+    const answer = await ask(`  ${varName}\n  ${hint}\n  > `);
+    const val = answer.trim();
+    if (val) {
+      process.env[varName] = val;
+      newLines.push(`${varName}=${val}`);
+    }
+    console.log('');
+  }
+  rl.close();
+
+  if (newLines.length > 0) {
+    const envPath = path.join(__dirname, '.env');
+    const existing = existsSync(envPath) ? await readFile(envPath, 'utf-8') : '';
+    // Strip any previous values for these keys before appending
+    const existingKeys = newLines.map(l => l.split('=')[0]);
+    const filtered = existing
+      .split('\n')
+      .filter(line => !existingKeys.some(k => line.startsWith(k + '=')))
+      .join('\n')
+      .trimEnd();
+    await writeFile(envPath, (filtered ? filtered + '\n' : '') + newLines.join('\n') + '\n');
+    console.log('  ✅ Credentials saved to .env\n');
+  }
+}
+
 console.log('\n╔══════════════════════════════════════════════╗');
 console.log('║  Claude Bridge Server for PPT Generator     ║');
 console.log('╚══════════════════════════════════════════════╝\n');
@@ -238,12 +318,47 @@ app.post('/mcp', async (req, res) => {
   }
 });
 
-// Health check endpoint
+// Health check endpoint — includes credential status so the UI can guide setup
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    credentials: credentialStatus,
   });
+});
+
+// Let the UI save credentials and re-check auth without restarting the server
+app.post('/setup-credentials', async (req, res) => {
+  const allowed = ['FOUNDRY_TARGET_URI', 'MODEL'];
+  const toSave = [];
+
+  for (const key of allowed) {
+    const val = req.body[key];
+    if (typeof val === 'string' && val.trim()) {
+      process.env[key] = val.trim();
+      toSave.push(`${key}=${val.trim()}`);
+    }
+  }
+
+  if (toSave.length > 0) {
+    try {
+      const envPath = path.join(__dirname, '.env');
+      const existing = existsSync(envPath) ? await readFile(envPath, 'utf-8') : '';
+      const keys = toSave.map(l => l.split('=')[0]);
+      const filtered = existing
+        .split('\n')
+        .filter(line => !keys.some(k => line.startsWith(k + '=')))
+        .join('\n')
+        .trimEnd();
+      await writeFile(envPath, (filtered ? filtered + '\n' : '') + toSave.join('\n') + '\n');
+    } catch (e) {
+      console.error('Failed to write .env:', e.message);
+    }
+  }
+
+  // Re-run the auth check with the newly set values
+  await checkAzureAuth();
+  res.json({ success: true, credentials: credentialStatus });
 });
 
 // Git workflow endpoints
@@ -297,11 +412,21 @@ app.post('/git/create-branch', async (req, res) => {
 app.post('/git/switch-branch', async (req, res) => {
   try {
     const { branchName } = req.body;
-    await execAsync(`git checkout ${branchName}`, {
+    console.log(`🔀 Switching to branch: ${branchName}`);
+
+    const { stdout, stderr } = await execAsync(`git checkout ${branchName}`, {
       cwd: '/Users/emmaeshler/Documents/Powerpoint-App-main'
     });
+
+    console.log(`  ✅ Branch switched successfully`);
+    if (stdout) console.log(`  stdout: ${stdout.trim()}`);
+    if (stderr) console.log(`  stderr: ${stderr.trim()}`);
+
     res.json({ success: true });
   } catch (error) {
+    console.error(`  ❌ Branch switch failed:`, error.message);
+    if (error.stdout) console.error(`  stdout: ${error.stdout}`);
+    if (error.stderr) console.error(`  stderr: ${error.stderr}`);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1054,26 +1179,92 @@ function cleanupPreviewCache() {
   }
 }
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`✅ Server is running on http://localhost:${PORT}`);
-  console.log(`\n📝 How it works:`);
-  console.log(`   1. Browser app sends slide generation requests`);
-  console.log(`   2. Server automatically loads selected skill files from disk`);
-  console.log(`   3. Server calls Azure Foundry API with enhanced prompt`);
-  console.log(`   4. Generated slide JSON returned to browser automatically`);
-  console.log(`\n💡 Skills will be read from:`);
-  console.log(`   - ~/.claude/skills/ (for GitHub-cloned skills)`);
-  console.log(`   - src/imports/pasted_text/ (for local skills)`);
-  console.log(`\n✨ Keep this server running while using the PPT app\n`);
+// ─── User Preferences ────────────────────────────────────────────────────────
+const PREFS_FILE = path.join(__dirname, 'data', 'preferences.json');
 
-  // Run cleanup on startup
-  cleanupPreviewCache();
+async function loadPreferences() {
+  try {
+    if (existsSync(PREFS_FILE)) {
+      const raw = await readFile(PREFS_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error('Failed to load preferences:', e.message);
+  }
+  return {};
+}
 
-  // Schedule cleanup every hour
-  setInterval(cleanupPreviewCache, 60 * 60 * 1000);
-  console.log('🧹 Preview cache cleanup scheduled (every 24 hours)\n');
+async function savePreferences(prefs) {
+  try {
+    await mkdir(path.dirname(PREFS_FILE), { recursive: true });
+    await writeFile(PREFS_FILE, JSON.stringify(prefs, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Failed to save preferences:', e.message);
+  }
+}
+
+app.get('/api/preferences', async (req, res) => {
+  const prefs = await loadPreferences();
+  res.json({ success: true, preferences: prefs });
 });
+
+app.post('/api/preferences', async (req, res) => {
+  try {
+    const existing = await loadPreferences();
+    const updated = { ...existing, ...req.body };
+    await savePreferences(updated);
+    res.json({ success: true, preferences: updated });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Start server
+async function startServer() {
+  // ── Step 1: collect any missing credentials interactively ────────────────
+  await promptForMissingCredentials();
+
+  // ── Step 2: verify Azure auth and update credential status ───────────────
+  await checkAzureAuth();
+
+  if (credentialStatus.state === 'auth_failed') {
+    console.log('\n╔══════════════════════════════════════════════════════════╗');
+    console.log('║  Azure authentication failed                            ║');
+    console.log('╚══════════════════════════════════════════════════════════╝\n');
+    console.log('  The server will still start, but AI generation will fail');
+    console.log('  until you authenticate.\n');
+    console.log('  To fix, run in a new terminal:');
+    console.log('    az login\n');
+    console.log('  Or set these environment variables in .env:');
+    console.log('    AZURE_CLIENT_ID=<your-client-id>');
+    console.log('    AZURE_CLIENT_SECRET=<your-client-secret>');
+    console.log('    AZURE_TENANT_ID=<your-tenant-id>\n');
+    console.log('  The app will guide you through this on the setup screen.\n');
+  }
+
+  // ── Step 3: start listening ───────────────────────────────────────────────
+  app.listen(PORT, () => {
+    console.log(`✅ Server is running on http://localhost:${PORT}`);
+    console.log(`\n📝 How it works:`);
+    console.log(`   1. Browser app sends slide generation requests`);
+    console.log(`   2. Server automatically loads selected skill files from disk`);
+    console.log(`   3. Server calls Azure Foundry API with enhanced prompt`);
+    console.log(`   4. Generated slide JSON returned to browser automatically`);
+    console.log(`\n💡 Skills will be read from:`);
+    console.log(`   - ~/.claude/skills/ (for GitHub-cloned skills)`);
+    console.log(`   - src/imports/pasted_text/ (for local skills)`);
+    console.log(`\n✨ Keep this server running while using the PPT app\n`);
+
+    // Run cleanup on startup
+    cleanupPreviewCache();
+
+    // Schedule cleanup every hour
+    setInterval(cleanupPreviewCache, 60 * 60 * 1000);
+    console.log('🧹 Preview cache cleanup scheduled (every 24 hours)\n');
+  });
+}
+
+startServer();
 
 // Handle shutdown gracefully
 process.on('SIGINT', () => {

@@ -99,6 +99,40 @@ function renderSlide(pptx: pptxgen, slide: Slide, t: DeckTheme) {
     return;
   }
 
+  // Handle alternate "panels" format (convert to sections)
+  if (slideData.content?.panels && Array.isArray(slideData.content.panels)) {
+    console.log('[PPTX Generator] Converting panels to sections format:', slideData.content.panels);
+
+    const normalizedData = {
+      ...slideData,
+      content: {
+        ...slideData.content,
+        sections: slideData.content.panels.map((panel: any, idx: number) => {
+          // Extract content - try multiple field names
+          const panelContent = panel.content || panel.description || panel.text || panel.items?.join('\n') || '';
+          const panelTitle = panel.title || panel.header || panel.label || `Panel ${idx + 1}`;
+          const panelIcon = panel.icon || panel.emoji || '';
+
+          console.log(`[Panel ${idx}]`, { title: panelTitle, icon: panelIcon, content: panelContent?.substring(0, 50) });
+
+          return {
+            type: 'panel',
+            header: panelTitle,
+            content: {
+              icon: panelIcon,
+              title: panelTitle,
+              description: panelContent
+            },
+            accentColor: panel.accentColor || panel.borderColor || panel.color || '00446A'
+          };
+        })
+      }
+    };
+    renderWillsSlide(s, normalizedData, t);
+    addFooter(s, t);
+    return;
+  }
+
   const contentStartY = addTitleWithDivider(s, slide, t);
 
   // Composition engine: template-driven grid layout

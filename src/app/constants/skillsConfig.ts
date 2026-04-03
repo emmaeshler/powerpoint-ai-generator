@@ -72,10 +72,24 @@ export const SKILLS_CONFIG: SkillsConfig = {
       label: 'Interactive Clarifications',
       description: 'Ask follow-up questions when prompts are vague or ambiguous - works with any bundle',
       file: 'clarification-questions.md',
-      // No bundleId - this is a universal skill that works with any bundle
+      bundleId: 'universal-bundle',
     },
   ],
   bundles: [
+    {
+      id: 'universal-bundle',
+      name: 'Universal Bundle',
+      owner: 'Everyone',
+      description: 'Skills that work alongside any bundle',
+      skills: ['clarification-questions'],
+      color: '#6B7280',
+      capabilities: {
+        layouts: false,
+        referenceSlides: false,
+        audience: true,
+        components: false,
+      },
+    },
     {
       id: 'emma-bundle',
       name: "Emma's Bundle",
@@ -84,6 +98,7 @@ export const SKILLS_CONFIG: SkillsConfig = {
       skills: ['design-system', 'brand-guide', 'reference-rules', 'composition-engine', 'layout-templates', 'figma-updates'],
       isDefault: true,
       color: '#1B6B7B',
+      defaultPreview: 'pptx',
       capabilities: {
         layouts: true,           // Has layout-templates.json
         referenceSlides: true,   // Has reference-rules.md

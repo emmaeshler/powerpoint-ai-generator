@@ -178,13 +178,16 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
         body: JSON.stringify({ branchName }),
       });
 
-      if (!response.ok) throw new Error('Failed to switch branch');
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to switch branch');
+      }
 
       toast.success(`Switched to branch "${branchName}"`);
       await fetchGitStatus();
     } catch (error) {
       console.error('Failed to switch branch:', error);
-      toast.error('Failed to switch branch');
+      toast.error(error instanceof Error ? error.message : 'Failed to switch branch');
     } finally {
       setIsLoading(false);
     }

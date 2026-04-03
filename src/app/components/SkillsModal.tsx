@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Briefcase, Globe, Loader2, Pencil, Check } from 'lucide-react';
+import { X, Briefcase, Globe, Loader2, Pencil, Check, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { SKILLS_CONFIG } from '../constants/skillsConfig';
@@ -24,12 +24,12 @@ export function SkillsModal({
   userDefaultBundle = 'emma-bundle',
   onShowGuide
 }: SkillsModalProps) {
-  const [activeBundle, setActiveBundle] = useState<string | null>(null);
+  const [activeBundle, setActiveBundle] = useState<string | null>(null); // null = show all (no filter)
   const [localSelectedSkills, setLocalSelectedSkills] = useState<string[]>(selectedSkills);
   const [skillsConfig, setSkillsConfig] = useState<SkillsConfig>(SKILLS_CONFIG);
   const [isLoadingManifest, setIsLoadingManifest] = useState(false);
   const [manifestError, setManifestError] = useState<string | null>(null);
-  const [showRepoInput, setShowRepoInput] = useState(false);
+  const [showAddSkillModal, setShowAddSkillModal] = useState(false);
   const [repoUrl, setRepoUrl] = useState('');
   const [isLoadingRepo, setIsLoadingRepo] = useState(false);
   const [repoError, setRepoError] = useState<string | null>(null);
@@ -128,16 +128,22 @@ export function SkillsModal({
   };
 
   const handleBundleClick = (bundleId: string) => {
-    const bundle = skillsConfig.bundles.find(b => b.id === bundleId);
-    if (!bundle) return;
+    // Toggle filter: clicking active bundle clears the filter
+    setActiveBundle(prev => prev === bundleId ? null : bundleId);
+  };
 
-    // Toggle bundle selection
-    if (activeBundle === bundleId) {
-      setActiveBundle(null);
+  const handleSelectAll = () => {
+    const visibleSkills = activeBundle
+      ? skillsConfig.skills.filter(s => s.bundleId === activeBundle)
+      : skillsConfig.skills;
+    const visibleIds = visibleSkills.map(s => s.id);
+    const allSelected = visibleIds.every(id => localSelectedSkills.includes(id));
+    if (allSelected) {
+      // Deselect all visible
+      setLocalSelectedSkills(localSelectedSkills.filter(id => !visibleIds.includes(id)));
     } else {
-      setActiveBundle(bundleId);
-      // Pre-select all skills in this bundle
-      setLocalSelectedSkills(bundle.skills);
+      // Select all visible (merge with existing)
+      setLocalSelectedSkills([...new Set([...localSelectedSkills, ...visibleIds])]);
     }
   };
 
@@ -259,7 +265,7 @@ export function SkillsModal({
 
       // Reset
       setRepoUrl('');
-      setShowRepoInput(false);
+      setShowAddSkillModal(false);
     } catch (error) {
       setRepoError(error instanceof Error ? error.message : 'Failed to connect repository');
     } finally {
@@ -318,8 +324,9 @@ export function SkillsModal({
       });
       localStorage.setItem('uploadedSkillBundles', JSON.stringify(cachedBundles));
 
-      // Reset file input
+      // Reset file input and close nested modal
       event.target.value = '';
+      setShowAddSkillModal(false);
     } catch (error) {
       setManifestError(error instanceof Error ? error.message : 'Failed to parse manifest file');
     } finally {
@@ -330,7 +337,7 @@ export function SkillsModal({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden flex flex-col"
+        className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden flex flex-col relative"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -347,20 +354,34 @@ export function SkillsModal({
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-          {/* Bundle Selector */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700">Skill Bundles</h3>
-            <div className="flex flex-wrap gap-2">
+        {/* Body: sidebar + skills panel */}
+        <div className="flex-1 flex overflow-hidden">
+
+          {/* Left sidebar */}
+          <div className="w-48 flex-shrink-0 border-r border-gray-200 flex flex-col bg-gray-50">
+            <div className="flex-1 overflow-y-auto py-2">
+
+              {/* All */}
+              <button
+                onClick={() => setActiveBundle(null)}
+                className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
+                  activeBundle === null
+                    ? 'bg-white font-semibold border-r-2 border-r-gray-800'
+                    : 'text-gray-600 hover:bg-white/60'
+                }`}
+                style={activeBundle === null ? { color: '#002F4A' } : {}}
+              >
+                <span>All</span>
+                <span className="text-xs text-gray-400">{skillsConfig.skills.length}</span>
+              </button>
+
+              <div className="mx-3 my-1 border-t border-gray-200" />
+
+              {/* Bundle rows */}
               {skillsConfig.bundles.map((bundle) => (
-                <div
-                  key={bundle.id}
-                  className="flex items-center gap-1"
-                >
+                <div key={bundle.id} className="group relative">
                   {renamingBundleId === bundle.id ? (
-                    // Rename input
-                    <div className="flex items-center gap-1 px-3 py-1.5 border-2 rounded-full bg-white" style={{ borderColor: bundle.color }}>
+                    <div className="flex items-center gap-1 px-3 py-2">
                       <input
                         type="text"
                         value={newBundleName}
@@ -369,268 +390,258 @@ export function SkillsModal({
                           if (e.key === 'Enter') handleSaveRename();
                           if (e.key === 'Escape') handleCancelRename();
                         }}
-                        className="outline-none text-sm font-medium min-w-[120px]"
+                        className="flex-1 text-sm border border-gray-300 rounded px-1.5 py-0.5 outline-none focus:ring-1"
                         autoFocus
                       />
-                      <button
-                        onClick={handleSaveRename}
-                        className="p-0.5 hover:bg-gray-100 rounded"
-                      >
+                      <button onClick={handleSaveRename} className="p-0.5 hover:bg-gray-100 rounded flex-shrink-0">
                         <Check className="w-3.5 h-3.5 text-green-600" />
                       </button>
-                      <button
-                        onClick={handleCancelRename}
-                        className="p-0.5 hover:bg-gray-100 rounded"
-                      >
-                        <X className="w-3.5 h-3.5 text-red-600" />
+                      <button onClick={handleCancelRename} className="p-0.5 hover:bg-gray-100 rounded flex-shrink-0">
+                        <X className="w-3.5 h-3.5 text-red-500" />
                       </button>
                     </div>
                   ) : (
-                    <>
-                      <button
-                        onClick={() => handleBundleClick(bundle.id)}
-                        className="px-4 py-2 rounded-full border-2 transition-all font-medium text-sm flex items-center gap-2"
-                        style={{
-                          borderColor: activeBundle === bundle.id ? bundle.color : '#d1d5db',
-                          backgroundColor: activeBundle === bundle.id ? bundle.color : 'white',
-                          color: activeBundle === bundle.id ? 'white' : '#374151'
-                        }}
-                      >
-                        {bundle.isDefault && <Briefcase className="w-3.5 h-3.5" />}
-                        {bundle.repoUrl && <Globe className="w-3.5 h-3.5" />}
-                        <span>{getBundleDisplayName(bundle)}</span>
-                        <span className="text-xs opacity-70">({bundle.skills.length})</span>
-                      </button>
-                      <button
-                        onClick={() => handleStartRename(bundle.id, bundle.name)}
-                        className="p-1 hover:bg-gray-100 rounded transition-colors"
-                        title="Rename bundle"
-                      >
-                        <Pencil className="w-3 h-3 text-gray-500" />
-                      </button>
-                    </>
+                    <button
+                      onClick={() => handleBundleClick(bundle.id)}
+                      className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left ${
+                        activeBundle === bundle.id
+                          ? 'bg-white font-semibold border-r-2'
+                          : 'text-gray-600 hover:bg-white/60'
+                      }`}
+                      style={activeBundle === bundle.id ? { color: bundle.color, borderRightColor: bundle.color } : {}}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: bundle.color || '#9ca3af' }}
+                      />
+                      <span className="flex-1 truncate">{getBundleDisplayName(bundle)}</span>
+                      <span className="text-xs text-gray-400 flex-shrink-0">{bundle.skills.length}</span>
+                    </button>
+                  )}
+                  {/* Rename pencil — visible on hover */}
+                  {renamingBundleId !== bundle.id && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleStartRename(bundle.id, bundle.name); }}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-200 transition-opacity"
+                      title="Rename"
+                    >
+                      <Pencil className="w-3 h-3 text-gray-400" />
+                    </button>
                   )}
                 </div>
               ))}
             </div>
-            <p className="text-xs text-gray-500">
-              Click a bundle to select all its skills, or check individual skills below. Click the pencil icon to rename.
-            </p>
-          </div>
 
-          {/* Add Skills */}
-          <div className="border-t pt-4 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700">Add Skills</h3>
-
-            {/* GitHub Repository Connection */}
-            {!showRepoInput ? (
+            {/* Add bundle button — sticky at sidebar bottom */}
+            <div className="p-3 border-t border-gray-200">
               <button
-                onClick={() => setShowRepoInput(true)}
-                className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#1B6B7B] transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                onClick={() => setShowAddSkillModal(true)}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md border border-dashed border-gray-300 hover:border-[#1B6B7B] text-xs font-medium transition-colors"
                 style={{ color: '#1B6B7B' }}
               >
-                <Globe className="w-4 h-4" />
-                Connect GitHub Repository
+                <Plus className="w-3.5 h-3.5" />
+                Add Bundle
               </button>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    placeholder="https://github.com/owner/repo"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#1B6B7B] focus:border-transparent"
-                  />
-                  <Button
-                    onClick={handleConnectRepo}
-                    disabled={isLoadingRepo || !repoUrl.trim()}
-                    className="px-4"
-                    style={{ backgroundColor: '#1B6B7B' }}
-                  >
-                    {isLoadingRepo ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      'Connect'
-                    )}
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setShowRepoInput(false);
-                      setRepoUrl('');
-                      setRepoError(null);
-                    }}
-                    variant="outline"
-                    className="px-4"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-                {repoError && (
-                  <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
-                    {repoError}
-                  </div>
-                )}
-                <div className="text-xs text-gray-500">
-                  <p className="font-medium mb-1">Repository should contain:</p>
-                  <ul className="list-disc list-inside space-y-0.5 ml-2">
-                    <li>skill-manifest.json (standard format), or</li>
-                    <li>SKILL.md (single skill file)</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {/* Divider */}
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-2 bg-white text-gray-500">or</span>
-              </div>
             </div>
-
-            {/* File Upload */}
-            <div className="space-y-3">
-              <label
-                htmlFor="manifest-upload"
-                className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#1B6B7B] transition-colors flex items-center justify-center gap-2 text-sm font-medium cursor-pointer"
-                style={{ color: '#1B6B7B' }}
-              >
-                {isLoadingManifest ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading manifest...
-                  </>
-                ) : (
-                  <>
-                    <Globe className="w-4 h-4" />
-                    Upload Manifest File
-                  </>
-                )}
-              </label>
-              <input
-                id="manifest-upload"
-                type="file"
-                accept=".json"
-                onChange={handleFileUpload}
-                className="hidden"
-                disabled={isLoadingManifest}
-              />
-
-              {manifestError && (
-                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
-                  {manifestError}
-                </div>
-              )}
-
-              <details className="text-xs text-gray-500">
-                <summary className="cursor-pointer text-[#1B6B7B] hover:underline">
-                  View manifest format
-                </summary>
-                <pre className="mt-2 p-2 bg-gray-100 rounded text-[10px] overflow-x-auto">
-{`{
-  "version": "1.0",
-  "bundle": {
-    "name": "My Skills",
-    "description": "Custom skills",
-    "owner": "Your Name"
-  },
-  "skills": [
-    {
-      "id": "my-skill",
-      "label": "My Skill",
-      "description": "Description",
-      "file": "path/to/skill.md"
-    }
-  ]
-}`}
-                </pre>
-              </details>
-            </div>
-
-            {/* Helper: Manual Upload */}
-            {onShowGuide && (
-              <div className="pt-2">
-                <button
-                  onClick={() => {
-                    onClose();
-                    onShowGuide();
-                  }}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline"
-                >
-                  Or manually add a skill file
-                </button>
-              </div>
-            )}
           </div>
 
-          {/* Skills Grid */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700">
-              Available Skills
-              <span className="ml-2 text-xs font-normal text-gray-500">
-                ({localSelectedSkills.length} selected)
+          {/* Right: skills panel */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-white flex-shrink-0">
+              <span className="text-sm font-semibold text-gray-700">
+                {activeBundle
+                  ? getBundleDisplayName(skillsConfig.bundles.find(b => b.id === activeBundle)!)
+                  : 'All Skills'}
+                <span className="ml-2 font-normal text-gray-400">
+                  {(() => {
+                    const visible = activeBundle
+                      ? skillsConfig.skills.filter(s => s.bundleId === activeBundle)
+                      : skillsConfig.skills;
+                    const selected = visible.filter(s => localSelectedSkills.includes(s.id)).length;
+                    return `${selected} / ${visible.length} selected`;
+                  })()}
+                </span>
               </span>
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {skillsConfig.skills.map((skill) => {
-                const isSelected = localSelectedSkills.includes(skill.id);
-                const skillBundle = skillsConfig.bundles.find(b => b.id === skill.bundleId);
+              <button
+                onClick={handleSelectAll}
+                className="text-xs font-medium px-3 py-1.5 rounded-full border border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                style={{ color: '#374151' }}
+              >
+                {(() => {
+                  const visibleIds = (activeBundle
+                    ? skillsConfig.skills.filter(s => s.bundleId === activeBundle)
+                    : skillsConfig.skills
+                  ).map(s => s.id);
+                  return visibleIds.every(id => localSelectedSkills.includes(id)) ? 'Deselect All' : 'Select All';
+                })()}
+              </button>
+            </div>
 
-                return (
-                  <div
-                    key={skill.id}
-                    onClick={() => handleSkillToggle(skill.id)}
-                    className="p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md"
-                    style={{
-                      borderColor: isSelected ? '#1B6B7B' : '#e5e7eb',
-                      backgroundColor: isSelected ? '#f0f9ff' : 'white',
-                    }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => handleSkillToggle(skill.id)}
-                        className="mt-0.5"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-semibold text-sm text-gray-900 truncate">
-                            {skill.label}
-                          </h4>
-                          {skill.isPublic && (
-                            <Globe className="w-3 h-3 text-purple-600 flex-shrink-0" />
+            {/* Skills grid */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {skillsConfig.skills.filter(skill => !activeBundle || skill.bundleId === activeBundle).map((skill) => {
+                  const isSelected = localSelectedSkills.includes(skill.id);
+                  const skillBundle = skillsConfig.bundles.find(b => b.id === skill.bundleId);
+
+                  return (
+                    <div
+                      key={skill.id}
+                      onClick={() => handleSkillToggle(skill.id)}
+                      className="p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md"
+                      style={{
+                        borderColor: isSelected ? (skillBundle?.color || '#1B6B7B') : '#e5e7eb',
+                        backgroundColor: isSelected ? (skillBundle?.color || '#1B6B7B') + '10' : 'white',
+                      }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => handleSkillToggle(skill.id)}
+                          className="mt-0.5"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-semibold text-sm text-gray-900 truncate">
+                              {skill.label}
+                            </h4>
+                            {skill.isPublic && <Globe className="w-3 h-3 text-purple-600 flex-shrink-0" />}
+                          </div>
+                          <code className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                            {skill.file}
+                          </code>
+                          <p className="text-xs text-gray-600 mt-2 line-clamp-2">{skill.description}</p>
+                          {!activeBundle && skillBundle && (
+                            <div className="mt-2">
+                              <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{ backgroundColor: skillBundle.color + '20', color: skillBundle.color }}
+                              >
+                                {getBundleDisplayName(skillBundle)}
+                              </span>
+                            </div>
                           )}
                         </div>
-                        <code className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
-                          {skill.file}
-                        </code>
-                        <p className="text-xs text-gray-600 mt-2 line-clamp-2">
-                          {skill.description}
-                        </p>
-                        {skillBundle && (
-                          <div className="mt-2 flex items-center gap-1">
-                            <span
-                              className="text-xs px-2 py-0.5 rounded-full"
-                              style={{
-                                backgroundColor: skillBundle.color + '20',
-                                color: skillBundle.color,
-                              }}
-                            >
-                              {getBundleDisplayName(skillBundle)}
-                            </span>
-                          </div>
-                        )}
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Add Skill nested modal */}
+        {showAddSkillModal && (
+          <div
+            className="absolute inset-0 bg-black/50 flex items-center justify-center z-10 rounded-lg"
+            onClick={() => {
+              setShowAddSkillModal(false);
+              setRepoUrl('');
+              setRepoError(null);
+              setManifestError(null);
+            }}
+          >
+            <div
+              className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-6 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Nested header */}
+              <div className="px-5 py-4 border-b flex items-center justify-between">
+                <h3 className="text-base font-semibold" style={{ color: '#002F4A' }}>Add Skill Bundle</h3>
+                <button
+                  onClick={() => {
+                    setShowAddSkillModal(false);
+                    setRepoUrl('');
+                    setRepoError(null);
+                    setManifestError(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Nested content */}
+              <div className="px-5 py-5 space-y-4">
+                {/* GitHub */}
+                <div className="space-y-3">
+                  <p className="text-sm font-medium text-gray-700">Connect a GitHub Repository</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={repoUrl}
+                      onChange={(e) => setRepoUrl(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleConnectRepo(); }}
+                      placeholder="https://github.com/owner/repo"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#1B6B7B] focus:border-transparent"
+                      autoFocus
+                    />
+                    <Button
+                      onClick={handleConnectRepo}
+                      disabled={isLoadingRepo || !repoUrl.trim()}
+                      style={{ backgroundColor: '#1B6B7B' }}
+                    >
+                      {isLoadingRepo ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Connect'}
+                    </Button>
+                  </div>
+                  {repoError && (
+                    <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
+                      {repoError}
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500">
+                    Repo should contain a <code className="bg-gray-100 px-1 rounded">skill-manifest.json</code> or <code className="bg-gray-100 px-1 rounded">SKILL.md</code>
+                  </p>
+                </div>
+
+                {/* Divider */}
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-200" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="px-2 bg-white text-gray-400">or</span>
+                  </div>
+                </div>
+
+                {/* File upload */}
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-gray-700">Upload a Manifest File</p>
+                  <label
+                    htmlFor="manifest-upload"
+                    className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#1B6B7B] transition-colors flex items-center justify-center gap-2 text-sm font-medium cursor-pointer"
+                    style={{ color: '#1B6B7B' }}
+                  >
+                    {isLoadingManifest ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</>
+                    ) : (
+                      <><Globe className="w-4 h-4" /> Upload manifest.json</>
+                    )}
+                  </label>
+                  <input id="manifest-upload" type="file" accept=".json" onChange={handleFileUpload} className="hidden" disabled={isLoadingManifest} />
+                  {manifestError && (
+                    <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{manifestError}</div>
+                  )}
+                  <details className="text-xs text-gray-500">
+                    <summary className="cursor-pointer text-[#1B6B7B] hover:underline">View manifest format</summary>
+                    <pre className="mt-2 p-2 bg-gray-100 rounded text-[10px] overflow-x-auto">{`{\n  "version": "1.0",\n  "bundle": { "name": "My Skills", "description": "...", "owner": "You" },\n  "skills": [{ "id": "my-skill", "label": "My Skill", "description": "...", "file": "skill.md" }]\n}`}</pre>
+                  </details>
+                </div>
+
+                {onShowGuide && (
+                  <button
+                    onClick={() => { setShowAddSkillModal(false); onClose(); onShowGuide(); }}
+                    className="text-xs text-gray-500 hover:text-gray-700 underline"
+                  >
+                    Or manually add a skill file
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-between">

@@ -6,6 +6,7 @@ export interface Skill {
   bundleId?: string;         // Primary bundle owner
   isPublic?: boolean;        // From GitHub repo
   repoUrl?: string;          // Source repo URL
+  defaultPreview?: 'pptx' | 'json'; // Preferred preview mode for this skill
 }
 
 export interface SkillBundle {
@@ -17,6 +18,7 @@ export interface SkillBundle {
   isDefault?: boolean;       // User's default bundle
   repoUrl?: string;          // Optional GitHub repo link
   color?: string;            // Visual distinction color
+  defaultPreview?: 'pptx' | 'json'; // Suggested default preview mode for this bundle
   capabilities?: {           // What features this bundle supports
     layouts?: boolean;       // Has layout/template skills
     referenceSlides?: boolean; // Can use reference slide images
