@@ -16,6 +16,7 @@ import { SessionTimer } from './components/SessionTimer';
 import { StopServerModal } from './components/StopServerModal';
 import { GitWorkflowModal } from './components/GitWorkflowModal';
 import { BridgeServerWarning } from './components/BridgeServerWarning';
+import { PPTXPreviewModal } from './components/PPTXPreviewModal';
 
 function App() {
   const [slides, setSlides] = useState<Slide[]>([]);
@@ -25,6 +26,8 @@ function App() {
   const [showStopModal, setShowStopModal] = useState(false);
   const [isSessionExpired, setIsSessionExpired] = useState(false);
   const [showGitWorkflow, setShowGitWorkflow] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [useUniversalPreview, setUseUniversalPreview] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleStopServer = useCallback(() => {
@@ -263,10 +266,18 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
     }
   }, []);
 
-  function handleGeneratePowerPoint() {
+  function handleShowPreview() {
+    if (slides.length === 0) {
+      toast.error('No slides to export');
+      return;
+    }
+    setShowPreviewModal(true);
+  }
+
+  function handleConfirmDownload() {
     try {
       generatePowerPoint(slides);
-      toast.success('PowerPoint exported');
+      toast.success('PowerPoint downloaded');
     } catch (error) {
       console.error(error);
       toast.error('Export failed');
@@ -508,6 +519,12 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
         isOpen={showGitWorkflow}
         onClose={() => setShowGitWorkflow(false)}
       />
+      <PPTXPreviewModal
+        slides={slides}
+        isOpen={showPreviewModal}
+        onClose={() => setShowPreviewModal(false)}
+        onConfirmDownload={handleConfirmDownload}
+      />
 
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
@@ -538,8 +555,8 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             <GitBranch className="w-3.5 h-3.5 mr-1.5" /> Push to GitHub
           </Button>
 
-          <Button size="sm" onClick={handleGeneratePowerPoint} className="text-white" style={{ backgroundColor: '#00446A' }}>
-            <Download className="w-3.5 h-3.5 mr-1.5" /> Export PPTX
+          <Button size="sm" onClick={handleShowPreview} className="text-white" style={{ backgroundColor: '#00446A' }}>
+            <Search className="w-3.5 h-3.5 mr-1.5" /> Preview & Export
           </Button>
         </div>
       </header>
@@ -567,8 +584,34 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
           />
         </div>
 
-        <div className="flex-1 min-w-0">
-          <SlidePreviewRouter slide={selectedSlide} />
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* Preview mode toggle */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
+            <label className="flex items-center gap-2 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                checked={useUniversalPreview}
+                onChange={(e) => setUseUniversalPreview(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="font-medium text-gray-700">
+                Show PPTX Preview (true output)
+              </span>
+            </label>
+            {useUniversalPreview && (
+              <span className="text-xs text-gray-500">
+                Generates actual PPTX for preview
+              </span>
+            )}
+          </div>
+
+          {/* Preview area */}
+          <div className="flex-1 overflow-auto p-4 flex items-center justify-center">
+            <SlidePreviewRouter
+              slide={selectedSlide}
+              useUniversalPreview={useUniversalPreview}
+            />
+          </div>
         </div>
 
         <div className="w-72 flex-shrink-0">

@@ -12,12 +12,22 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { createInterface } from 'readline';
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 import { promisify } from 'util';
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
+import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import crypto from 'crypto';
+import vm from 'vm';
+import pptxgen from 'pptxgenjs';
 import { DefaultAzureCredential } from '@azure/identity';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const execAsync = promisify(exec);
 
@@ -250,9 +260,17 @@ app.get('/git/current-branch', async (req, res) => {
 
 app.get('/git/branches', async (req, res) => {
   try {
-    const { stdout } = await execAsync('git branch -a', {
-      cwd: '/Users/emmaeshler/Documents/Powerpoint-App-main'
-    });
+    const cwd = '/Users/emmaeshler/Documents/Powerpoint-App-main';
+
+    // Fetch latest from remote (don't fail if it errors)
+    try {
+      await execAsync('git fetch --all --prune', { cwd });
+    } catch (fetchError) {
+      console.warn('Failed to fetch from remote:', fetchError.message);
+      // Continue anyway with local branches
+    }
+
+    const { stdout } = await execAsync('git branch -a', { cwd });
     const branches = stdout
       .split('\n')
       .map(b => b.trim().replace(/^\*\s*/, '').replace(/^remotes\/origin\//, ''))
@@ -433,6 +451,609 @@ app.get('/git/summary', async (req, res) => {
   }
 });
 
+// PptxGenJS Preview Endpoint
+import { executeWillsCode } from './utils/pptxgen-executor.js';
+
+app.post('/preview-pptxgen', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ error: 'No code provided' });
+    }
+
+    console.log('📊 Executing PptxGenJS code for preview...');
+
+    const result = await executeWillsCode(code);
+
+    if (!result.success) {
+      console.error('❌ PptxGenJS execution failed:', result.error);
+      return res.status(500).json({
+        error: result.error,
+        stack: result.stack
+      });
+    }
+
+    console.log(`✅ Preview generated: ${result.metadata.slideCount} slide(s), ${result.metadata.elementCount} element(s)`);
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('❌ Preview endpoint error:', error);
+    res.status(500).json({
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// PptxGenJS Export Endpoint (generates actual PPTX file)
+app.post('/export-pptxgen', async (req, res) => {
+  try {
+    const { code, fileName = 'INSIGHT2PROFIT_Presentation.pptx' } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ error: 'No code provided' });
+    }
+
+    console.log('📦 Generating PPTX from PptxGenJS code...');
+
+    // Load slide-lib.js
+    const slideLibPath = path.join(
+      process.env.HOME || os.homedir(),
+      '.claude/skills/poc-branded-pptx-slide/slide-lib.js'
+    );
+
+    if (!fs.existsSync(slideLibPath)) {
+      throw new Error(`slide-lib.js not found at: ${slideLibPath}`);
+    }
+
+    const slideLibCode = fs.readFileSync(slideLibPath, 'utf8');
+
+    // INSIGHT color palette
+    const INSIGHT_COLORS = {
+      primary: '00446A',
+      accent: 'E56910',
+      primaryLight: 'D9E6EC',
+      accentLight: 'FCEEE4',
+      textDark: '25282A',
+      textMid: '4A6070',
+      textLight: '7A95A5',
+      border: 'C8D9E2',
+      green: '339966',
+      red: 'CB333B',
+      gray: '75787B',
+      white: 'FFFFFF',
+      offWhite: 'F3F4F4',
+      darkNavy: '051C2C',
+      font: 'Arial Narrow'
+    };
+
+    // PowerPoint dimensions
+    const W = 13.3;
+    const H = 7.5;
+    const MARGIN = 0.35;
+    const GUTTER = 0.23;
+    const CONTENT_AREA = {
+      x: MARGIN,
+      y: 1.35,
+      w: W - MARGIN * 2,
+      h: H - 1.35 - MARGIN
+    };
+    const FRAME = {
+      title: { x: MARGIN, y: 0.35, w: W - MARGIN * 2, h: 0.5 },
+      subtitle: { x: MARGIN, y: 0.9, w: W - MARGIN * 2, h: 0.3 },
+      footer: { x: MARGIN, y: H - 0.35, w: W - MARGIN * 2, h: 0.25 }
+    };
+
+    // Create sandbox context
+    const sandbox = {
+      module: { exports: {} },
+      exports: {},
+      require: (name) => {
+        if (name === 'pptxgenjs') return pptxgen;
+        if (name === 'fs') return fs;
+        if (name === 'path') return path;
+        throw new Error(`Module '${name}' is not allowed`);
+      },
+      console: console,
+      Buffer: Buffer,
+      process: {
+        env: process.env,
+        cwd: () => process.cwd()
+      },
+      W, H, MARGIN, GUTTER,
+      CONTENT_AREA,
+      FRAME
+    };
+
+    // Execute slide-lib.js first
+    const slideLibModule = { exports: {} };
+    sandbox.module = slideLibModule;
+    sandbox.exports = slideLibModule.exports;
+
+    vm.runInNewContext(slideLibCode, sandbox, {
+      filename: 'slide-lib.js',
+      timeout: 5000,
+      displayErrors: true
+    });
+
+    // Store slide-lib exports
+    const slideLibExports = slideLibModule.exports;
+
+    // Execute Will's code
+    const willsModule = { exports: {} };
+    sandbox.module = willsModule;
+    sandbox.exports = willsModule.exports;
+
+    // Make slide-lib functions available
+    Object.assign(sandbox, slideLibExports);
+
+    vm.runInNewContext(code, sandbox, {
+      filename: 'wills-slide.js',
+      timeout: 5000,
+      displayErrors: true
+    });
+
+    // Get the exported addSlide function
+    const addSlide = willsModule.exports;
+
+    if (typeof addSlide !== 'function') {
+      throw new Error('Will\'s code did not export a function');
+    }
+
+    // Create real presentation
+    const pres = new pptxgen();
+    pres.layout = 'LAYOUT_WIDE';
+    pres.author = 'INSIGHT2PROFIT';
+    pres.title = 'Generated Presentation';
+    pres.defineLayout({ name: 'INSIGHT_CONTENT', width: W, height: H });
+    pres.layout = 'INSIGHT_CONTENT';
+
+    // Execute the addSlide function
+    await addSlide(pres, INSIGHT_COLORS);
+
+    // Generate PPTX file
+    const tempPath = path.join(os.tmpdir(), fileName);
+    await pres.writeFile({ fileName: tempPath });
+
+    console.log(`✅ PPTX generated: ${tempPath}`);
+
+    // Send file
+    res.download(tempPath, fileName, (err) => {
+      if (err) {
+        console.error('❌ Error sending file:', err);
+      }
+      // Clean up temp file
+      fs.unlinkSync(tempPath);
+    });
+
+  } catch (error) {
+    console.error('❌ Export endpoint error:', error);
+    res.status(500).json({
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Upload PPTX for Preview (accepts pre-generated PPTX blob)
+app.post('/api/upload-pptx-preview', async (req, res) => {
+  try {
+    const { pptxBase64 } = req.body;
+
+    if (!pptxBase64) {
+      return res.status(400).json({ error: 'No PPTX data provided' });
+    }
+
+    console.log('📊 Processing uploaded PPTX for preview...');
+
+    // Generate unique request ID
+    const requestId = crypto.randomBytes(16).toString('hex');
+    const tempDir = path.join(__dirname, '.preview-cache');
+
+    // Create cache directory if needed
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const pptxPath = path.join(tempDir, `${requestId}.pptx`);
+    const pdfPath = path.join(tempDir, `${requestId}.pdf`);
+
+    // Save PPTX from base64
+    const pptxBuffer = Buffer.from(pptxBase64, 'base64');
+    fs.writeFileSync(pptxPath, pptxBuffer);
+
+    console.log(`  ✅ PPTX saved: ${pptxPath}`);
+
+    // Try to convert to PDF using LibreOffice
+    let pdfGenerated = false;
+
+    try {
+      let sofficeCmd = 'soffice';
+
+      // Check common macOS location
+      if (fs.existsSync('/Applications/LibreOffice.app/Contents/MacOS/soffice')) {
+        sofficeCmd = '/Applications/LibreOffice.app/Contents/MacOS/soffice';
+      }
+
+      console.log(`  → Converting PPTX to PDF...`);
+      execSync(
+        `"${sofficeCmd}" --headless --convert-to pdf --outdir "${tempDir}" "${pptxPath}"`,
+        { timeout: 10000 }
+      );
+
+      pdfGenerated = fs.existsSync(pdfPath);
+
+      if (pdfGenerated) {
+        console.log(`  ✅ PDF generated: ${pdfPath}`);
+      }
+    } catch (err) {
+      console.log('  ⚠️  LibreOffice conversion failed (falling back to PPTX download):', err.message);
+      pdfGenerated = false;
+    }
+
+    res.json({
+      success: true,
+      pdfUrl: pdfGenerated ? `/api/preview-pdf/${requestId}` : null,
+      pptxUrl: `/api/preview-pptx/${requestId}`,
+      requestId,
+      message: pdfGenerated ? 'Preview ready' : 'PDF conversion not available, download PPTX instead'
+    });
+
+  } catch (error) {
+    console.error('❌ Upload preview error:', error);
+    res.status(500).json({
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Universal PPTX Preview Endpoint (generates PPTX + optional PDF conversion)
+app.post('/api/universal-pptx-preview', async (req, res) => {
+  try {
+    const { slides, format } = req.body;
+
+    if (!slides || !Array.isArray(slides) || slides.length === 0) {
+      return res.status(400).json({ error: 'No slides provided' });
+    }
+
+    console.log(`📊 Generating universal preview for ${slides.length} slide(s), format: ${format || 'auto'}`);
+
+    // Generate unique request ID for caching
+    const requestId = crypto.randomBytes(16).toString('hex');
+    const tempDir = path.join(__dirname, '.preview-cache');
+
+    // Create cache directory if it doesn't exist
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const pptxPath = path.join(tempDir, `${requestId}.pptx`);
+    const pdfPath = path.join(tempDir, `${requestId}.pdf`);
+
+    // Step 1: Generate PPTX based on format
+    let generatedPptx = false;
+
+    if (format === 'will-sections') {
+      // Will's sections format - use server-side generation
+      console.log('  → Using Will\'s sections renderer');
+      const pres = new pptxgen();
+
+      pres.layout = 'LAYOUT_WIDE';
+      pres.author = 'INSIGHT2PROFIT';
+      pres.title = 'Generated Presentation';
+      pres.defineLayout({ name: 'INSIGHT_CONTENT', width: 13.3, height: 7.5 });
+      pres.layout = 'INSIGHT_CONTENT';
+
+      // Import renderWillsSlide logic (would need to extract from pptx-generator.ts)
+      // For now, just create a basic slide
+      for (const slide of slides) {
+        const s = pres.addSlide();
+        s.background = { color: 'FFFFFF' };
+
+        // Add title
+        if (slide.title) {
+          s.addText(slide.title, {
+            x: 0.75, y: 0.4, w: 11.833, h: 0.45,
+            fontSize: 24, bold: true, color: '00446A',
+            fontFace: 'Arial Narrow', align: 'left', valign: 'middle'
+          });
+        }
+
+        // Add divider
+        s.addShape('rect', {
+          x: 0.75, y: 1.0, w: 11.833, h: 0.02,
+          fill: { color: '00446A' }, line: { type: 'none' }
+        });
+
+        // Add footer
+        s.addShape('rect', {
+          x: 0.75, y: 6.85, w: 11.833, h: 0.015,
+          fill: { color: 'E56910' }, line: { type: 'none' }
+        });
+        s.addText('INSIGHT2PROFIT', {
+          x: 0.75, y: 6.95, w: 2.0, h: 0.3,
+          fontSize: 10, color: '00446A', fontFace: 'Calibri',
+          align: 'left', valign: 'middle', bold: true
+        });
+        s.addText('1', {
+          x: 11.0, y: 6.95, w: 1.583, h: 0.3,
+          fontSize: 10, color: 'E56910', fontFace: 'Calibri',
+          align: 'right', valign: 'middle'
+        });
+      }
+
+      await pres.writeFile({ fileName: pptxPath });
+      generatedPptx = true;
+
+    } else if (format === 'will-code') {
+      // Will's PptxGenJS code - reuse export-pptxgen logic
+      console.log('  → Using Will\'s PptxGenJS code executor');
+      const slide = slides[0];
+      const code = slide.content?.pptxCode || slide.content?.rawOutput;
+
+      if (!code) {
+        throw new Error('No PptxGenJS code found in slide');
+      }
+
+      // Load slide-lib.js
+      const slideLibPath = path.join(
+        process.env.HOME || os.homedir(),
+        '.claude/skills/poc-branded-pptx-slide/slide-lib.js'
+      );
+
+      if (!fs.existsSync(slideLibPath)) {
+        throw new Error(`slide-lib.js not found at: ${slideLibPath}`);
+      }
+
+      const slideLibCode = fs.readFileSync(slideLibPath, 'utf8');
+
+      // INSIGHT color palette
+      const INSIGHT_COLORS = {
+        primary: '00446A',
+        accent: 'E56910',
+        green: '339966',
+        red: 'CB333B',
+        gray: '75787B',
+        white: 'FFFFFF',
+        offWhite: 'F3F4F4'
+      };
+
+      // PowerPoint dimensions
+      const W = 13.3;
+      const H = 7.5;
+      const MARGIN = 0.35;
+      const GUTTER = 0.23;
+      const CONTENT_AREA = {
+        x: MARGIN,
+        y: 1.35,
+        w: W - MARGIN * 2,
+        h: H - 1.35 - MARGIN
+      };
+      const FRAME = {
+        title: { x: MARGIN, y: 0.35, w: W - MARGIN * 2, h: 0.5 },
+        subtitle: { x: MARGIN, y: 0.9, w: W - MARGIN * 2, h: 0.3 },
+        footer: { x: MARGIN, y: H - 0.35, w: W - MARGIN * 2, h: 0.25 }
+      };
+
+      // Create sandbox context
+      const sandbox = {
+        module: { exports: {} },
+        exports: {},
+        require: (name) => {
+          if (name === 'pptxgenjs') return pptxgen;
+          if (name === 'fs') return fs;
+          if (name === 'path') return path;
+          throw new Error(`Module '${name}' is not allowed`);
+        },
+        console: console,
+        Buffer: Buffer,
+        process: {
+          env: process.env,
+          cwd: () => process.cwd()
+        },
+        W, H, MARGIN, GUTTER,
+        CONTENT_AREA,
+        FRAME
+      };
+
+      // Execute slide-lib.js first
+      const slideLibModule = { exports: {} };
+      sandbox.module = slideLibModule;
+      sandbox.exports = slideLibModule.exports;
+
+      vm.runInNewContext(slideLibCode, sandbox, {
+        filename: 'slide-lib.js',
+        timeout: 5000,
+        displayErrors: true
+      });
+
+      // Store slide-lib exports
+      const slideLibExports = slideLibModule.exports;
+
+      // Execute Will's code
+      const willsModule = { exports: {} };
+      sandbox.module = willsModule;
+      sandbox.exports = willsModule.exports;
+
+      // Make slide-lib functions available
+      Object.assign(sandbox, slideLibExports);
+
+      vm.runInNewContext(code, sandbox, {
+        filename: 'wills-slide.js',
+        timeout: 5000,
+        displayErrors: true
+      });
+
+      // Get the exported addSlide function
+      const addSlide = willsModule.exports;
+
+      if (typeof addSlide !== 'function') {
+        throw new Error('Will\'s code did not export a function');
+      }
+
+      // Create real presentation
+      const pres = new pptxgen();
+      pres.layout = 'LAYOUT_WIDE';
+      pres.author = 'INSIGHT2PROFIT';
+      pres.title = 'Generated Presentation';
+      pres.defineLayout({ name: 'INSIGHT_CONTENT', width: W, height: H });
+      pres.layout = 'INSIGHT_CONTENT';
+
+      // Execute the addSlide function
+      await addSlide(pres, INSIGHT_COLORS);
+
+      // Generate PPTX file
+      await pres.writeFile({ fileName: pptxPath });
+      generatedPptx = true;
+
+    } else {
+      // Emma's format or generic - return error for now (needs browser-side generation)
+      return res.json({
+        success: false,
+        error: 'Emma\'s format must be generated in browser. Use format="will-sections" or "will-code".',
+        pptxUrl: null
+      });
+    }
+
+    if (!generatedPptx) {
+      throw new Error('Failed to generate PPTX');
+    }
+
+    console.log(`  ✅ PPTX generated: ${pptxPath}`);
+
+    // Step 2: Convert PPTX → PDF using LibreOffice (optional)
+    let pdfGenerated = false;
+
+    try {
+      // Try to find soffice binary
+      let sofficeCmd = 'soffice';
+
+      // Check common macOS location
+      if (fs.existsSync('/Applications/LibreOffice.app/Contents/MacOS/soffice')) {
+        sofficeCmd = '/Applications/LibreOffice.app/Contents/MacOS/soffice';
+      }
+
+      console.log(`  → Converting PPTX to PDF...`);
+      execSync(
+        `"${sofficeCmd}" --headless --convert-to pdf --outdir "${tempDir}" "${pptxPath}"`,
+        { timeout: 10000 }
+      );
+
+      pdfGenerated = fs.existsSync(pdfPath);
+
+      if (pdfGenerated) {
+        console.log(`  ✅ PDF generated: ${pdfPath}`);
+      }
+    } catch (err) {
+      console.log('  ⚠️  LibreOffice conversion failed (falling back to PPTX download):', err.message);
+      pdfGenerated = false;
+    }
+
+    // Step 3: Return URLs
+    res.json({
+      success: true,
+      pdfUrl: pdfGenerated ? `/api/preview-pdf/${requestId}` : null,
+      pptxUrl: `/api/preview-pptx/${requestId}`,
+      requestId,
+      message: pdfGenerated ? 'Preview ready' : 'PDF conversion not available, download PPTX instead'
+    });
+
+  } catch (error) {
+    console.error('❌ Universal preview error:', error);
+    res.status(500).json({
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Serve cached PDF
+app.get('/api/preview-pdf/:requestId', (req, res) => {
+  const pdfPath = path.resolve(__dirname, '.preview-cache', `${req.params.requestId}.pdf`);
+
+  console.log(`📄 Serving PDF: ${pdfPath}`);
+
+  if (!fs.existsSync(pdfPath)) {
+    console.error(`❌ PDF not found: ${pdfPath}`);
+    return res.status(404).json({ error: 'PDF preview not found' });
+  }
+
+  // Use streaming instead of sendFile (more reliable)
+  res.contentType('application/pdf');
+  const stream = fs.createReadStream(pdfPath);
+
+  stream.on('error', (err) => {
+    console.error('❌ Error streaming PDF:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to stream PDF file' });
+    }
+  });
+
+  stream.on('end', () => {
+    console.log('✅ PDF streamed successfully');
+  });
+
+  stream.pipe(res);
+});
+
+// Serve cached PPTX
+app.get('/api/preview-pptx/:requestId', (req, res) => {
+  const pptxPath = path.resolve(__dirname, '.preview-cache', `${req.params.requestId}.pptx`);
+
+  if (!fs.existsSync(pptxPath)) {
+    return res.status(404).json({ error: 'PPTX preview not found' });
+  }
+
+  // Use streaming instead of sendFile (more reliable)
+  res.contentType('application/vnd.openxmlformats-officedocument.presentationml.presentation');
+  const stream = fs.createReadStream(pptxPath);
+
+  stream.on('error', (err) => {
+    console.error('❌ Error streaming PPTX:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to stream PPTX file' });
+    }
+  });
+
+  stream.pipe(res);
+});
+
+// Cache cleanup job - runs every hour to delete old preview files
+function cleanupPreviewCache() {
+  const cacheDir = path.join(__dirname, '.preview-cache');
+
+  if (!fs.existsSync(cacheDir)) {
+    return;
+  }
+
+  try {
+    const files = fs.readdirSync(cacheDir);
+    const now = Date.now();
+    let deletedCount = 0;
+
+    files.forEach(file => {
+      const filePath = path.join(cacheDir, file);
+      const stats = fs.statSync(filePath);
+      const age = now - stats.mtimeMs;
+
+      // Delete files older than 24 hours
+      if (age > 24 * 60 * 60 * 1000) {
+        fs.unlinkSync(filePath);
+        deletedCount++;
+      }
+    });
+
+    if (deletedCount > 0) {
+      console.log(`🧹 Cleaned up ${deletedCount} old preview file(s)`);
+    }
+  } catch (err) {
+    console.error('Cache cleanup error:', err.message);
+  }
+}
+
 // Start server
 app.listen(PORT, () => {
   console.log(`✅ Server is running on http://localhost:${PORT}`);
@@ -445,6 +1066,13 @@ app.listen(PORT, () => {
   console.log(`   - ~/.claude/skills/ (for GitHub-cloned skills)`);
   console.log(`   - src/imports/pasted_text/ (for local skills)`);
   console.log(`\n✨ Keep this server running while using the PPT app\n`);
+
+  // Run cleanup on startup
+  cleanupPreviewCache();
+
+  // Schedule cleanup every hour
+  setInterval(cleanupPreviewCache, 60 * 60 * 1000);
+  console.log('🧹 Preview cache cleanup scheduled (every 24 hours)\n');
 });
 
 // Handle shutdown gracefully

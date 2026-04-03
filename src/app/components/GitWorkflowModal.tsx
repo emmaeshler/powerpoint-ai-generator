@@ -7,7 +7,7 @@ import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { GitBranch, GitCommit, Upload, RefreshCw, AlertTriangle } from 'lucide-react';
+import { GitBranch, GitCommit, Upload, RefreshCw, AlertTriangle, Plus, ArrowLeftRight, Check, X as XIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface GitWorkflowModalProps {
@@ -34,6 +34,8 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
   const [overrideNote, setOverrideNote] = useState<string>('');
   const [branchToOverride, setBranchToOverride] = useState<string>('');
   const [changesSummary, setChangesSummary] = useState<ChangesSummary | null>(null);
+  const [showNewBranchInput, setShowNewBranchInput] = useState(false);
+  const [showBranchSelector, setShowBranchSelector] = useState(false);
 
   // Fetch current git status
   useEffect(() => {
@@ -115,6 +117,7 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
 
       toast.success(`Branch "${newBranchName}" created and checked out`);
       setNewBranchName('');
+      setShowNewBranchInput(false);
       await fetchGitStatus();
     } catch (error) {
       console.error('Failed to create branch:', error);
@@ -231,92 +234,160 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
   return (
     <>
       <Dialog open={isOpen && !showOverrideWarning} onOpenChange={onClose}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle style={{ color: '#25282A' }}>Push to GitHub</DialogTitle>
             <DialogDescription style={{ color: '#75787B' }}>
-              Manage branches, commit changes, and push to GitHub
+              Review changes and push to your repository
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 py-4">
-            {/* Current Branch Display */}
-            <div className="rounded-lg p-4" style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
-              <div className="flex items-center gap-2">
-                <GitBranch className="w-4 h-4" style={{ color: '#00446A' }} />
-                <span className="text-sm font-medium" style={{ color: '#25282A' }}>
-                  Current Branch:
-                </span>
-                <code className="text-sm px-2 py-0.5 rounded" style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}>
-                  {currentBranch || 'Loading...'}
-                </code>
+          <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-2">
+            {/* Current Branch with Actions */}
+            <div className="rounded-lg p-3" style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <GitBranch className="w-4 h-4" style={{ color: '#00446A' }} />
+                  <span className="text-xs font-medium" style={{ color: '#75787B' }}>Branch:</span>
+                  <code className="text-sm px-2 py-0.5 rounded font-semibold" style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}>
+                    {currentBranch || 'Loading...'}
+                  </code>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setShowBranchSelector(!showBranchSelector)}
+                    className="p-1.5 rounded hover:bg-gray-200 transition-colors"
+                    title="Switch branch"
+                    disabled={isLoading}
+                  >
+                    <ArrowLeftRight className="w-4 h-4" style={{ color: '#00446A' }} />
+                  </button>
+                  <button
+                    onClick={() => setShowNewBranchInput(!showNewBranchInput)}
+                    className="p-1.5 rounded hover:bg-gray-200 transition-colors"
+                    title="Create new branch"
+                    disabled={isLoading}
+                  >
+                    <Plus className="w-4 h-4" style={{ color: '#00446A' }} />
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {/* Create New Branch */}
-            <div className="space-y-3">
-              <Label htmlFor="new-branch" className="text-sm font-medium" style={{ color: '#25282A' }}>
-                Create New Branch
-              </Label>
-              <div className="flex gap-2">
-                <Input
-                  id="new-branch"
-                  placeholder="feature/my-new-feature"
-                  value={newBranchName}
-                  onChange={(e) => setNewBranchName(e.target.value)}
-                  disabled={isLoading}
-                />
-                <Button
-                  onClick={handleCreateBranch}
-                  disabled={isLoading || !newBranchName.trim()}
-                  style={{ backgroundColor: '#00446A' }}
-                  className="text-white"
-                >
-                  <GitBranch className="w-4 h-4 mr-2" />
-                  Create
-                </Button>
-              </div>
-            </div>
+              {/* Branch Selector (expandable) */}
+              {showBranchSelector && (
+                <div className="mt-3 pt-3 border-t" style={{ borderColor: '#E5E7EB' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-xs font-medium" style={{ color: '#25282A' }}>
+                      Switch to: <span className="text-[10px] ml-1 px-1.5 py-0.5 rounded" style={{ backgroundColor: '#EEF4F7', color: '#00446A' }}>
+                        {allBranches.length} branch{allBranches.length !== 1 ? 'es' : ''}
+                      </span>
+                    </Label>
+                    <button
+                      onClick={() => {
+                        fetchGitStatus();
+                        toast.info('Refreshing branches...');
+                      }}
+                      disabled={isLoading}
+                      className="p-1 rounded hover:bg-gray-200 transition-colors"
+                      title="Refresh from remote"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} style={{ color: '#00446A' }} />
+                    </button>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {allBranches.map((branch) => (
+                      <button
+                        key={branch}
+                        onClick={() => {
+                          handleSwitchBranch(branch);
+                          setShowBranchSelector(false);
+                        }}
+                        disabled={branch === currentBranch || isLoading}
+                        className="w-full text-left px-3 py-1.5 rounded text-xs hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono">{branch}</span>
+                          {branch === currentBranch && (
+                            <Check className="w-3 h-3" style={{ color: '#00446A' }} />
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-            {/* Switch Branch */}
-            <div className="space-y-3">
-              <Label htmlFor="switch-branch" className="text-sm font-medium" style={{ color: '#25282A' }}>
-                Switch Branch
-              </Label>
-              <Select
-                value={currentBranch}
-                onValueChange={handleSwitchBranch}
-                disabled={isLoading}
-              >
-                <SelectTrigger id="switch-branch">
-                  <SelectValue placeholder="Select a branch" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allBranches.map((branch) => (
-                    <SelectItem key={branch} value={branch}>
-                      {branch}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* New Branch Input (expandable) */}
+              {showNewBranchInput && (
+                <div className="mt-3 pt-3 border-t" style={{ borderColor: '#E5E7EB' }}>
+                  <Label className="text-xs font-medium mb-2" style={{ color: '#25282A' }}>
+                    New branch name:
+                  </Label>
+                  <div className="flex gap-2 mt-2">
+                    <Input
+                      placeholder="feature/my-feature"
+                      value={newBranchName}
+                      onChange={(e) => setNewBranchName(e.target.value)}
+                      disabled={isLoading}
+                      className="text-sm"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newBranchName.trim()) {
+                          handleCreateBranch();
+                        }
+                      }}
+                    />
+                    <Button
+                      onClick={() => {
+                        handleCreateBranch();
+                        setShowNewBranchInput(false);
+                      }}
+                      disabled={isLoading || !newBranchName.trim()}
+                      size="sm"
+                      style={{ backgroundColor: '#00446A' }}
+                      className="text-white"
+                    >
+                      <Check className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowNewBranchInput(false);
+                        setNewBranchName('');
+                      }}
+                      disabled={isLoading}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <XIcon className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Changes Summary */}
-            {changesSummary?.hasChanges && (
-              <div className="border-t pt-6" style={{ borderColor: '#E5E7EB' }}>
+            {changesSummary && (
+              <div>
                 <h3 className="text-sm font-semibold mb-3" style={{ color: '#25282A' }}>
                   📋 Changes Summary
                 </h3>
-                <div className="space-y-3">
+                {!changesSummary.hasChanges ? (
+                  <div className="text-center py-6 rounded-lg" style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
+                    <div className="text-gray-400 mb-2">
+                      <GitCommit className="w-8 h-8 mx-auto" />
+                    </div>
+                    <p className="text-sm" style={{ color: '#75787B' }}>No changes to commit</p>
+                  </div>
+                ) : (
+                <div className="space-y-2.5">
                   {/* Skills */}
                   {(changesSummary.skills.added.length > 0 ||
                     changesSummary.skills.modified.length > 0 ||
                     changesSummary.skills.removed.length > 0) && (
-                    <div className="p-3 rounded-lg" style={{ backgroundColor: '#EEF4F7', border: '1px solid #D1E5EC' }}>
-                      <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2.5 rounded-lg" style={{ backgroundColor: '#EEF4F7', border: '1px solid #D1E5EC' }}>
+                      <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-xs font-medium" style={{ color: '#00446A' }}>📦 Skills</span>
                       </div>
-                      <div className="space-y-1 text-xs">
+                      <div className="space-y-0.5 text-xs">
                         {changesSummary.skills.added.map(skill => (
                           <div key={skill} className="flex items-center gap-2">
                             <span className="text-green-600 font-mono">+</span>
@@ -341,15 +412,15 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
 
                   {/* Components */}
                   {changesSummary.components.length > 0 && (
-                    <div className="p-3 rounded-lg" style={{ backgroundColor: '#F5F3FF', border: '1px solid #E9D5FF' }}>
-                      <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2.5 rounded-lg" style={{ backgroundColor: '#F5F3FF', border: '1px solid #E9D5FF' }}>
+                      <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-xs font-medium" style={{ color: '#7C3AED' }}>🎨 UI Components</span>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5">
                         {changesSummary.components.map(comp => (
                           <span
                             key={comp}
-                            className="px-2 py-0.5 rounded text-xs"
+                            className="px-2 py-0.5 rounded text-[11px]"
                             style={{ backgroundColor: '#E9D5FF', color: '#6B21A8' }}
                           >
                             {comp}
@@ -361,15 +432,15 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
 
                   {/* Generators */}
                   {changesSummary.generators.length > 0 && (
-                    <div className="p-3 rounded-lg" style={{ backgroundColor: '#FFF7ED', border: '1px solid #FED7AA' }}>
-                      <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2.5 rounded-lg" style={{ backgroundColor: '#FFF7ED', border: '1px solid #FED7AA' }}>
+                      <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-xs font-medium" style={{ color: '#C2410C' }}>⚙️ Generators</span>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5">
                         {changesSummary.generators.map(gen => (
                           <span
                             key={gen}
-                            className="px-2 py-0.5 rounded text-xs"
+                            className="px-2 py-0.5 rounded text-[11px]"
                             style={{ backgroundColor: '#FED7AA', color: '#9A3412' }}
                           >
                             {gen}
@@ -395,43 +466,45 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
                     </details>
                   )}
                 </div>
+                )}
               </div>
             )}
 
-            <div className="border-t pt-6" style={{ borderColor: '#E5E7EB' }}>
-              <div className="space-y-3">
-                <Label htmlFor="commit-message" className="text-sm font-medium" style={{ color: '#25282A' }}>
-                  Commit Message
-                </Label>
-                <Textarea
-                  id="commit-message"
-                  placeholder="Describe your changes..."
-                  value={commitMessage}
-                  onChange={(e) => setCommitMessage(e.target.value)}
-                  disabled={isLoading}
-                  rows={3}
-                />
-              </div>
-
-              <div className="flex gap-2 mt-4">
-                <Button
-                  onClick={handleCommitAndPush}
-                  disabled={isLoading || !commitMessage.trim()}
-                  className="flex-1 text-white"
-                  style={{ backgroundColor: '#00446A' }}
-                >
-                  {isLoading ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Upload className="w-4 h-4 mr-2" />
-                  )}
-                  Commit & Push
-                </Button>
-                <Button variant="outline" onClick={onClose} disabled={isLoading}>
-                  Cancel
-                </Button>
-              </div>
+            {/* Commit Message Section */}
+            <div className="space-y-3">
+              <Label htmlFor="commit-message" className="text-sm font-medium" style={{ color: '#25282A' }}>
+                Commit Message
+              </Label>
+              <Textarea
+                id="commit-message"
+                placeholder="Describe your changes..."
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                disabled={isLoading}
+                rows={3}
+                className="resize-none"
+              />
             </div>
+          </div>
+
+          {/* Footer - Fixed at bottom */}
+          <div className="flex-shrink-0 border-t pt-4 flex gap-2" style={{ borderColor: '#E5E7EB' }}>
+            <Button
+              onClick={handleCommitAndPush}
+              disabled={isLoading || !commitMessage.trim() || !changesSummary?.hasChanges}
+              className="flex-1 text-white"
+              style={{ backgroundColor: '#00446A' }}
+            >
+              {isLoading ? (
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4 mr-2" />
+              )}
+              Commit & Push
+            </Button>
+            <Button variant="outline" onClick={onClose} disabled={isLoading}>
+              Cancel
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

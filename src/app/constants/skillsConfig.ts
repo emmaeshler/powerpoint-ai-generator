@@ -67,6 +67,13 @@ export const SKILLS_CONFIG: SkillsConfig = {
       file: 'narrative-slide-skill.md',
       bundleId: 'test-bundle',
     },
+    {
+      id: 'clarification-questions',
+      label: 'Interactive Clarifications',
+      description: 'Ask follow-up questions when prompts are vague or ambiguous - works with any bundle',
+      file: 'clarification-questions.md',
+      // No bundleId - this is a universal skill that works with any bundle
+    },
   ],
   bundles: [
     {
