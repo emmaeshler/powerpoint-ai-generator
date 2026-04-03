@@ -588,6 +588,7 @@ app.post('/preview-pptxgen', async (req, res) => {
     }
 
     console.log('📊 Executing PptxGenJS code for preview...');
+    console.log('📄 Code preview (first 200 chars):', code.substring(0, 200));
 
     const result = await executeWillsCode(code);
 
@@ -671,22 +672,41 @@ app.post('/export-pptxgen', async (req, res) => {
       footer: { x: MARGIN, y: H - 0.35, w: W - MARGIN * 2, h: 0.25 }
     };
 
-    // Create sandbox context
+    // Create sandbox context with safe require (allows mocked modules)
+    const createSafeRequire = () => {
+      return function safeRequire(moduleName) {
+        if (moduleName === 'pptxgenjs') return pptxgen;
+        if (moduleName === 'fs') return fs;
+        if (moduleName === 'path') return path;
+
+        // Mocked modules for slide-lib compatibility
+        if (moduleName === 'react') {
+          return { createElement: () => ({}) };
+        }
+        if (moduleName === 'react-dom/server') {
+          return { renderToStaticMarkup: () => '<svg></svg>' };
+        }
+        if (moduleName === 'sharp') {
+          return () => ({ png: () => ({ toBuffer: () => Promise.resolve(Buffer.from('')) }) });
+        }
+
+        throw new Error(`Module '${moduleName}' is not allowed in sandbox`);
+      };
+    };
+
+    const skillDir = path.dirname(slideLibPath);
     const sandbox = {
       module: { exports: {} },
       exports: {},
-      require: (name) => {
-        if (name === 'pptxgenjs') return pptxgen;
-        if (name === 'fs') return fs;
-        if (name === 'path') return path;
-        throw new Error(`Module '${name}' is not allowed`);
-      },
+      require: createSafeRequire(),
       console: console,
       Buffer: Buffer,
       process: {
         env: process.env,
         cwd: () => process.cwd()
       },
+      __dirname: skillDir,
+      __filename: slideLibPath,
       W, H, MARGIN, GUTTER,
       CONTENT_AREA,
       FRAME
@@ -738,8 +758,9 @@ app.post('/export-pptxgen', async (req, res) => {
     // Execute the addSlide function
     await addSlide(pres, INSIGHT_COLORS);
 
-    // Generate PPTX file
-    const tempPath = path.join(os.tmpdir(), fileName);
+    // Generate PPTX file with unique temp name to avoid race conditions
+    const uniqueFileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${fileName}`;
+    const tempPath = path.join(os.tmpdir(), uniqueFileName);
     await pres.writeFile({ fileName: tempPath });
 
     console.log(`✅ PPTX generated: ${tempPath}`);
@@ -749,8 +770,14 @@ app.post('/export-pptxgen', async (req, res) => {
       if (err) {
         console.error('❌ Error sending file:', err);
       }
-      // Clean up temp file
-      fs.unlinkSync(tempPath);
+      // Clean up temp file (ignore if already deleted)
+      try {
+        if (fs.existsSync(tempPath)) {
+          fs.unlinkSync(tempPath);
+        }
+      } catch (cleanupErr) {
+        // Ignore cleanup errors - file might already be deleted
+      }
     });
 
   } catch (error) {

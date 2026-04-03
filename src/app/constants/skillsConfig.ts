@@ -82,7 +82,7 @@ export const SKILLS_CONFIG: SkillsConfig = {
       owner: 'Everyone',
       description: 'Skills that work alongside any bundle',
       skills: ['clarification-questions'],
-      color: '#6B7280',
+      color: '#F59E0B',
       capabilities: {
         layouts: false,
         referenceSlides: false,
@@ -97,7 +97,7 @@ export const SKILLS_CONFIG: SkillsConfig = {
       description: 'Core design system and layout rules',
       skills: ['design-system', 'brand-guide', 'reference-rules', 'composition-engine', 'layout-templates', 'figma-updates'],
       isDefault: true,
-      color: '#1B6B7B',
+      color: '#0EA5E9',
       defaultPreview: 'pptx',
       capabilities: {
         layouts: true,           // Has layout-templates.json
@@ -112,7 +112,7 @@ export const SKILLS_CONFIG: SkillsConfig = {
       owner: 'Testing',
       description: 'Test narrative slide structure - no templates',
       skills: ['narrative-slide'],
-      color: '#8B5CF6',
+      color: '#A855F7',
       capabilities: {
         layouts: false,
         referenceSlides: false,
@@ -127,7 +127,7 @@ export const SKILLS_CONFIG: SkillsConfig = {
       description: 'INSIGHT/PFP branding - slide builder for single slides, deck builder for full presentations',
       skills: ['branded-pptx-slide', 'branded-pptx-deck'],
       repoUrl: 'https://github.com/PRICE-FOR-PROFIT/poc-branded-pptx-deck',
-      color: '#00446A',
+      color: '#10B981',
       capabilities: {
         layouts: true,           // Supports panels, flows, tables
         referenceSlides: false,  // Uses its own structure

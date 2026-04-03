@@ -269,8 +269,15 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
       const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       let finalPrompt = prompt;
+
+      // Add skill file reference for Will's bundle
+      if (activeBundleId === 'wills-bundle') {
+        const skillFile = '~/.claude/skills/poc-branded-pptx-slide/SKILL.md';
+        finalPrompt = `File: ${skillFile}\n\n${prompt}`;
+      }
+
       if (referenceImageBase64) {
-        finalPrompt = `[REFERENCE IMAGE PROVIDED]\n\nUse the layout structure from the reference slide image as your template. Match the visual organization, hierarchy, and layout approach — but use the content below. Do not copy any text from the reference.\n\n${prompt}`;
+        finalPrompt = `[REFERENCE IMAGE PROVIDED]\n\nUse the layout structure from the reference slide image as your template. Match the visual organization, hierarchy, and layout approach — but use the content below. Do not copy any text from the reference.\n\n${finalPrompt}`;
       }
 
       const response = await fetch(AI_ENDPOINT, {
@@ -693,8 +700,8 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             </span>
           </div>
 
-          {/* Preview area */}
-          <div className="flex-1 overflow-auto p-4 flex items-center justify-center">
+          {/* Preview area — min-h-0 lets flex-1 respect parent height so aspect-ratio sizing works */}
+          <div className="flex-1 min-h-0 overflow-hidden p-6 flex items-center justify-center">
             {generationState?.isGenerating ? (
               <GenerationLoadingView
                 mode={generationState.mode}
@@ -759,10 +766,15 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
                 <div className="text-gray-400 text-sm">No slide selected</div>
               )
             ) : (
-              <SlidePreviewRouter
-                slide={selectedSlide}
-                useUniversalPreview={previewMode === 'pptx'}
-              />
+              <div
+                className="w-full rounded-lg overflow-hidden shadow-lg"
+                style={{ maxHeight: '100%', aspectRatio: '16 / 9' }}
+              >
+                <SlidePreviewRouter
+                  slide={selectedSlide}
+                  useUniversalPreview={previewMode === 'pptx'}
+                />
+              </div>
             )}
           </div>
         </div>

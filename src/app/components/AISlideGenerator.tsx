@@ -77,21 +77,27 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
   const selectedSlide = REFERENCE_SLIDES.find(s => s.id === selectedReference);
   const selectedAudienceObj = AUDIENCES.find(a => a.id === selectedAudience);
 
+  // Universal bundle skills are always on — compute once
+  const universalSkillIds = SKILLS_CONFIG.bundles
+    .filter(b => b.id === 'universal-bundle')
+    .flatMap(b => b.skills);
+  const withUniversal = (ids: string[]) => [...new Set([...universalSkillIds, ...ids])];
+
   // Load skills selection from localStorage on mount
   useEffect(() => {
     const cached = localStorage.getItem('skillsSelection');
     if (cached) {
       try {
         const data: SkillsSelection = JSON.parse(cached);
-        setSelectedSkills(data.selectedSkills);
+        setSelectedSkills(withUniversal(data.selectedSkills));
         if (data.defaultBundle) setUserDefaultBundle(data.defaultBundle);
       } catch (e) {
         console.error('Failed to load skills selection:', e);
       }
     } else {
-      // First time: select default bundle's skills
+      // First time: select default bundle's skills + universal
       const defaultBundle = SKILLS_CONFIG.bundles.find(b => b.id === userDefaultBundle);
-      if (defaultBundle) setSelectedSkills(defaultBundle.skills);
+      if (defaultBundle) setSelectedSkills(withUniversal(defaultBundle.skills));
     }
   }, []);
 
@@ -107,25 +113,23 @@ export function AISlideGenerator({ onGenerateSlide, onGenerateSlides, onRequestA
     }
   }, [selectedSkills, userDefaultBundle]);
 
-  // Notify parent when active bundle changes
+  // Notify parent when active bundle changes — skip universal bundle (it's always on, not a primary bundle)
   useEffect(() => {
     if (onBundleChange) {
-      let bundleId = userDefaultBundle;
-      if (selectedSkills.length > 0) {
-        const firstSkill = SKILLS_CONFIG.skills.find(s => s.id === selectedSkills[0]);
-        if (firstSkill?.bundleId) bundleId = firstSkill.bundleId;
-      }
-      onBundleChange(bundleId);
+      const nonUniversalSkill = selectedSkills
+        .map(id => SKILLS_CONFIG.skills.find(s => s.id === id))
+        .find(s => s && s.bundleId !== 'universal-bundle');
+      onBundleChange(nonUniversalSkill?.bundleId ?? userDefaultBundle);
     }
   }, [selectedSkills, userDefaultBundle, onBundleChange]);
 
-  /** Get the active bundle ID from selected skills */
+  /** Get the active bundle ID from selected skills — never returns universal-bundle */
   function getActiveBundleId(): string {
-    if (selectedSkills.length === 0) return 'emma-bundle'; // default
-
-    // Find the bundle ID from the first selected skill
-    const firstSkill = SKILLS_CONFIG.skills.find(s => s.id === selectedSkills[0]);
-    if (firstSkill?.bundleId) return firstSkill.bundleId;
+    // Find first non-universal skill and use its bundle
+    const nonUniversalSkill = selectedSkills
+      .map(id => SKILLS_CONFIG.skills.find(s => s.id === id))
+      .find(s => s && s.bundleId !== 'universal-bundle');
+    if (nonUniversalSkill?.bundleId) return nonUniversalSkill.bundleId;
 
     // Fall back to user's default bundle
     return userDefaultBundle;

@@ -90,7 +90,13 @@ function parseEmmaSlide(response: string, bundleId?: string): Slide {
  * Parser for Will's bundle - handles PptxGenJS code (native format)
  */
 function parseWillsSlide(response: string, bundleId?: string): Slide {
-  const cleaned = response.trim();
+  let cleaned = response.trim();
+
+  // Strip markdown code fences if present
+  const codeBlockMatch = cleaned.match(/```(?:javascript|js)?\s*\n?([\s\S]*?)\n?```/i);
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim();
+  }
 
   // Detect if this is PptxGenJS code (Will's native format)
   const isPptxGenJS =

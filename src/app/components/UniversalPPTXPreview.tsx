@@ -25,7 +25,28 @@ export function UniversalPPTXPreview({ slides, format, isSelected, onClick }: Un
       setPdfUrl(null);
 
       try {
-        const pptxBlob = await generatePowerPointBlob(slides);
+        let pptxBlob: Blob;
+
+        // For Will's code-based slides, execute on server
+        if (format === 'will-code' && slides[0]?.content?.pptxCode) {
+          const code = slides[0].content.pptxCode;
+
+          const exportResponse = await fetch('http://localhost:4000/export-pptxgen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, fileName: 'preview.pptx' })
+          });
+
+          if (!exportResponse.ok) {
+            throw new Error('Failed to generate PPTX from code');
+          }
+
+          pptxBlob = await exportResponse.blob();
+        } else {
+          // For other slides, generate in browser
+          pptxBlob = await generatePowerPointBlob(slides);
+        }
+
         const base64 = await blobToBase64(pptxBlob);
 
         const response = await fetch('http://localhost:4000/api/upload-pptx-preview', {
@@ -63,16 +84,13 @@ export function UniversalPPTXPreview({ slides, format, isSelected, onClick }: Un
     });
   }
 
-  const W = 800;
-  const H = 450;
-
   return (
     <div
       onClick={onClick}
-      className={`relative cursor-pointer overflow-hidden transition-all ${
+      className={`relative w-full overflow-hidden transition-all ${
         isSelected ? 'ring-2 ring-blue-500' : 'ring-1 ring-gray-200 hover:ring-gray-300'
       }`}
-      style={{ width: W, height: H, backgroundColor: '#f3f4f6' }}
+      style={{ aspectRatio: '16 / 9', backgroundColor: '#f3f4f6' }}
     >
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -92,7 +110,7 @@ export function UniversalPPTXPreview({ slides, format, isSelected, onClick }: Un
       )}
       {!isLoading && pdfUrl && (
         <iframe
-          src={pdfUrl}
+          src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
           style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
           title="Slide Preview"
         />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Briefcase, Globe, Loader2, Pencil, Check, Plus } from 'lucide-react';
+import { X, Briefcase, Globe, Loader2, Pencil, Check, Plus, Lock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { SKILLS_CONFIG } from '../constants/skillsConfig';
@@ -25,7 +25,16 @@ export function SkillsModal({
   onShowGuide
 }: SkillsModalProps) {
   const [activeBundle, setActiveBundle] = useState<string | null>(null); // null = show all (no filter)
-  const [localSelectedSkills, setLocalSelectedSkills] = useState<string[]>(selectedSkills);
+
+  // Universal bundle skills are always selected and cannot be deselected
+  const universalSkillIds = SKILLS_CONFIG.bundles
+    .filter(b => b.id === 'universal-bundle')
+    .flatMap(b => b.skills);
+
+  const ensureUniversal = (ids: string[]) =>
+    [...new Set([...universalSkillIds, ...ids])];
+
+  const [localSelectedSkills, setLocalSelectedSkills] = useState<string[]>(ensureUniversal(selectedSkills));
   const [skillsConfig, setSkillsConfig] = useState<SkillsConfig>(SKILLS_CONFIG);
   const [isLoadingManifest, setIsLoadingManifest] = useState(false);
   const [manifestError, setManifestError] = useState<string | null>(null);
@@ -139,8 +148,8 @@ export function SkillsModal({
     const visibleIds = visibleSkills.map(s => s.id);
     const allSelected = visibleIds.every(id => localSelectedSkills.includes(id));
     if (allSelected) {
-      // Deselect all visible
-      setLocalSelectedSkills(localSelectedSkills.filter(id => !visibleIds.includes(id)));
+      // Deselect all visible — but keep universal skills
+      setLocalSelectedSkills(ensureUniversal(localSelectedSkills.filter(id => !visibleIds.includes(id))));
     } else {
       // Select all visible (merge with existing)
       setLocalSelectedSkills([...new Set([...localSelectedSkills, ...visibleIds])]);
@@ -148,8 +157,10 @@ export function SkillsModal({
   };
 
   const handleSkillToggle = (skillId: string) => {
+    // Universal bundle skills cannot be deselected
+    if (universalSkillIds.includes(skillId)) return;
     if (localSelectedSkills.includes(skillId)) {
-      setLocalSelectedSkills(localSelectedSkills.filter(id => id !== skillId));
+      setLocalSelectedSkills(ensureUniversal(localSelectedSkills.filter(id => id !== skillId)));
     } else {
       setLocalSelectedSkills([...localSelectedSkills, skillId]);
     }
@@ -158,7 +169,8 @@ export function SkillsModal({
   };
 
   const handleClearAll = () => {
-    setLocalSelectedSkills([]);
+    // Keep universal bundle skills — they're always on
+    setLocalSelectedSkills(universalSkillIds);
     setActiveBundle(null);
   };
 
@@ -364,12 +376,14 @@ export function SkillsModal({
               {/* All */}
               <button
                 onClick={() => setActiveBundle(null)}
-                className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
+                className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-all ${
                   activeBundle === null
-                    ? 'bg-white font-semibold border-r-2 border-r-gray-800'
-                    : 'text-gray-600 hover:bg-white/60'
+                    ? 'bg-white font-semibold border-r-4'
+                    : 'text-gray-500 hover:bg-white/60 hover:text-gray-800'
                 }`}
-                style={activeBundle === null ? { color: '#002F4A' } : {}}
+                style={activeBundle === null
+                  ? { color: '#002F4A', borderRightColor: '#002F4A', backgroundColor: '#F0F4F8' }
+                  : {}}
               >
                 <span>All</span>
                 <span className="text-xs text-gray-400">{skillsConfig.skills.length}</span>
@@ -377,8 +391,8 @@ export function SkillsModal({
 
               <div className="mx-3 my-1 border-t border-gray-200" />
 
-              {/* Bundle rows */}
-              {skillsConfig.bundles.map((bundle) => (
+              {/* Bundle rows — universal bundle is excluded (it's always-on, not a filter) */}
+              {skillsConfig.bundles.filter(b => b.id !== 'universal-bundle').map((bundle) => (
                 <div key={bundle.id} className="group relative">
                   {renamingBundleId === bundle.id ? (
                     <div className="flex items-center gap-1 px-3 py-2">
@@ -403,19 +417,21 @@ export function SkillsModal({
                   ) : (
                     <button
                       onClick={() => handleBundleClick(bundle.id)}
-                      className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left ${
+                      className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-all text-left ${
                         activeBundle === bundle.id
-                          ? 'bg-white font-semibold border-r-2'
-                          : 'text-gray-600 hover:bg-white/60'
+                          ? 'font-semibold border-r-4'
+                          : 'text-gray-500 hover:bg-white/60 hover:text-gray-800'
                       }`}
-                      style={activeBundle === bundle.id ? { color: bundle.color, borderRightColor: bundle.color } : {}}
+                      style={activeBundle === bundle.id
+                        ? { color: bundle.color, borderRightColor: bundle.color, backgroundColor: (bundle.color || '#000') + '12' }
+                        : {}}
                     >
                       <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        className="w-3 h-3 rounded-full flex-shrink-0 ring-2 ring-white"
                         style={{ backgroundColor: bundle.color || '#9ca3af' }}
                       />
                       <span className="flex-1 truncate">{getBundleDisplayName(bundle)}</span>
-                      <span className="text-xs text-gray-400 flex-shrink-0">{bundle.skills.length}</span>
+                      <span className="text-xs flex-shrink-0" style={{ color: activeBundle === bundle.id ? bundle.color + 'aa' : '#9ca3af' }}>{bundle.skills.length}</span>
                     </button>
                   )}
                   {/* Rename pencil — visible on hover */}
@@ -431,6 +447,28 @@ export function SkillsModal({
                 </div>
               ))}
             </div>
+
+            {/* Always-included universal skills */}
+            {(() => {
+              const universalBundle = skillsConfig.bundles.find(b => b.id === 'universal-bundle');
+              const universalSkills = skillsConfig.skills.filter(s => universalSkillIds.includes(s.id));
+              if (!universalBundle || universalSkills.length === 0) return null;
+              return (
+                <div className="mx-3 mb-2">
+                  <div className="rounded-lg px-2.5 py-2" style={{ backgroundColor: (universalBundle.color) + '12', border: `1px solid ${universalBundle.color}30` }}>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Lock className="w-3 h-3 flex-shrink-0" style={{ color: universalBundle.color }} />
+                      <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: universalBundle.color }}>
+                        Always Included
+                      </span>
+                    </div>
+                    {universalSkills.map(s => (
+                      <div key={s.id} className="text-[11px] text-gray-500 truncate pl-0.5">{s.label}</div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Add bundle button — sticky at sidebar bottom */}
             <div className="p-3 border-t border-gray-200">
@@ -484,29 +522,42 @@ export function SkillsModal({
                 {skillsConfig.skills.filter(skill => !activeBundle || skill.bundleId === activeBundle).map((skill) => {
                   const isSelected = localSelectedSkills.includes(skill.id);
                   const skillBundle = skillsConfig.bundles.find(b => b.id === skill.bundleId);
+                  const isUniversal = universalSkillIds.includes(skill.id);
 
                   return (
                     <div
                       key={skill.id}
-                      onClick={() => handleSkillToggle(skill.id)}
-                      className="p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md"
+                      onClick={() => !isUniversal && handleSkillToggle(skill.id)}
+                      className={`p-4 border-2 rounded-lg transition-all ${isUniversal ? 'cursor-default' : 'cursor-pointer hover:shadow-md'}`}
                       style={{
                         borderColor: isSelected ? (skillBundle?.color || '#1B6B7B') : '#e5e7eb',
                         backgroundColor: isSelected ? (skillBundle?.color || '#1B6B7B') + '10' : 'white',
                       }}
                     >
                       <div className="flex items-start gap-3">
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => handleSkillToggle(skill.id)}
-                          className="mt-0.5"
-                        />
+                        {isUniversal ? (
+                          <div className="mt-0.5 w-4 h-4 flex items-center justify-center flex-shrink-0" title="Always included">
+                            <Lock className="w-3.5 h-3.5" style={{ color: skillBundle?.color || '#F59E0B' }} />
+                          </div>
+                        ) : (
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleSkillToggle(skill.id)}
+                            className="mt-0.5"
+                          />
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <h4 className="font-semibold text-sm text-gray-900 truncate">
                               {skill.label}
                             </h4>
                             {skill.isPublic && <Globe className="w-3 h-3 text-purple-600 flex-shrink-0" />}
+                            {isUniversal && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0"
+                                style={{ backgroundColor: (skillBundle?.color || '#F59E0B') + '20', color: skillBundle?.color || '#F59E0B' }}>
+                                always on
+                              </span>
+                            )}
                           </div>
                           <code className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
                             {skill.file}

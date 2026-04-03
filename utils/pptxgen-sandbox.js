@@ -123,6 +123,22 @@ class MockPresentation {
     this.author = '';
     this.title = '';
     this.subject = '';
+
+    // Add ShapeType enum (PptxGenJS standard shapes)
+    this.ShapeType = {
+      rect: 'rect',
+      ellipse: 'ellipse',
+      line: 'line',
+      triangle: 'triangle',
+      rtTriangle: 'rtTriangle',
+      diamond: 'diamond',
+      pentagon: 'pentagon',
+      hexagon: 'hexagon',
+      octagon: 'octagon',
+      rounded: 'rounded',
+      arc: 'arc',
+      pie: 'pie'
+    };
   }
 
   /**
