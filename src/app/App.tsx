@@ -37,22 +37,6 @@ function App() {
   const [showPreviewPrompt, setShowPreviewPrompt] = useState(false);
   const [generationState, setGenerationState] = useState<{ isGenerating: boolean; mode: 'slide' | 'deck'; prompt: string } | null>(null);
 
-  // Measure the preview area so we can constrain the slide width to always show
-  // the full slide + PDF toolbar without any clipping.
-  const previewAreaRef = useRef<HTMLDivElement>(null);
-  const [previewAreaHeight, setPreviewAreaHeight] = useState(0);
-  useLayoutEffect(() => {
-    const el = previewAreaRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(entries => setPreviewAreaHeight(entries[0].contentRect.height));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  // p-6 = 24px each side → 48px total vertical padding inside the preview area
-  const PREVIEW_PADDING = 48;
-  const maxSlideWidth = previewAreaHeight > 0
-    ? Math.floor((previewAreaHeight - PREVIEW_PADDING - PPTX_TOOLBAR_H) * 16 / 9)
-    : undefined;
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Resolve preview mode whenever active bundle changes
@@ -740,8 +724,8 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             </span>
           </div>
 
-          {/* Preview area — min-h-0 lets flex-1 respect parent height */}
-          <div ref={previewAreaRef} className="flex-1 min-h-0 overflow-hidden p-6 flex items-center justify-center">
+          {/* Preview area — consistent sizing with scrolling */}
+          <div className="flex-1 min-h-0 overflow-auto p-6 flex items-center justify-center">
             {generationState?.isGenerating ? (
               <GenerationLoadingView
                 mode={generationState.mode}
@@ -807,8 +791,12 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
               )
             ) : (
               <div
-                className="w-full rounded-lg overflow-hidden shadow-lg"
-                style={{ maxWidth: maxSlideWidth ?? '100%' }}
+                className="rounded-lg overflow-hidden shadow-lg"
+                style={{
+                  width: 'min(95%, calc((100vh - 200px) * 16 / 9))',
+                  maxWidth: '95%',
+                  aspectRatio: '16/9'
+                }}
               >
                 <SlidePreviewRouter
                   slide={selectedSlide}
