@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { Slide, generateSlideId, generateComponentId, CalloutBarComponent } from './types';
 import { SlideList } from './components/SlideList';
 import { SlidePreviewRouter } from './components/SlidePreviewRouter';
@@ -20,6 +20,7 @@ import { BridgeServerWarning } from './components/BridgeServerWarning';
 import { PPTXPreviewModal } from './components/PPTXPreviewModal';
 import { PreviewModePromptModal } from './components/PreviewModePromptModal';
 import { GenerationLoadingView } from './components/GenerationLoadingView';
+import { PPTX_TOOLBAR_H } from './components/UniversalPPTXPreview';
 import { SKILLS_CONFIG } from './constants/skillsConfig';
 
 function App() {
@@ -35,6 +36,23 @@ function App() {
   const [activeBundleId, setActiveBundleId] = useState<string>('emma-bundle');
   const [showPreviewPrompt, setShowPreviewPrompt] = useState(false);
   const [generationState, setGenerationState] = useState<{ isGenerating: boolean; mode: 'slide' | 'deck'; prompt: string } | null>(null);
+
+  // Measure the preview area so we can constrain the slide width to always show
+  // the full slide + PDF toolbar without any clipping.
+  const previewAreaRef = useRef<HTMLDivElement>(null);
+  const [previewAreaHeight, setPreviewAreaHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = previewAreaRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => setPreviewAreaHeight(entries[0].contentRect.height));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // p-6 = 24px each side → 48px total vertical padding inside the preview area
+  const PREVIEW_PADDING = 48;
+  const maxSlideWidth = previewAreaHeight > 0
+    ? Math.floor((previewAreaHeight - PREVIEW_PADDING - PPTX_TOOLBAR_H) * 16 / 9)
+    : undefined;
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Resolve preview mode whenever active bundle changes
@@ -349,13 +367,35 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
     setShowPreviewModal(true);
   }
 
-  function handleConfirmDownload() {
+  async function handleConfirmDownload() {
     try {
-      generatePowerPoint(slides);
-      toast.success('PowerPoint downloaded');
+      // Check if any slides are Will's code-based
+      const hasWillsCode = slides.some(slide =>
+        slide.content?.pptxCode || slide.content?.rawOutput
+      );
+
+      if (hasWillsCode) {
+        // Server-side export for Will's code slides
+        toast.info('Generating presentation on server...');
+
+        // For now, export each slide separately
+        // TODO: Implement multi-slide deck export for Will's format
+        for (const slide of slides) {
+          if (slide.content?.pptxCode) {
+            const { generateWillsPowerPoint } = await import('./utils/pptx-generator');
+            await generateWillsPowerPoint(slide.content.pptxCode, `${slide.title || 'Slide'}.pptx`);
+          }
+        }
+
+        toast.success('PowerPoint(s) downloaded');
+      } else {
+        // Browser-side export for Emma's format
+        generatePowerPoint(slides);
+        toast.success('PowerPoint downloaded');
+      }
     } catch (error) {
       console.error(error);
-      toast.error('Export failed');
+      toast.error('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   }
 
@@ -700,8 +740,8 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             </span>
           </div>
 
-          {/* Preview area — min-h-0 lets flex-1 respect parent height so aspect-ratio sizing works */}
-          <div className="flex-1 min-h-0 overflow-hidden p-6 flex items-center justify-center">
+          {/* Preview area — min-h-0 lets flex-1 respect parent height */}
+          <div ref={previewAreaRef} className="flex-1 min-h-0 overflow-hidden p-6 flex items-center justify-center">
             {generationState?.isGenerating ? (
               <GenerationLoadingView
                 mode={generationState.mode}
@@ -768,7 +808,7 @@ Please return the updated slide JSON that incorporates the requested changes. Ma
             ) : (
               <div
                 className="w-full rounded-lg overflow-hidden shadow-lg"
-                style={{ maxHeight: '100%', aspectRatio: '16 / 9' }}
+                style={{ maxWidth: maxSlideWidth ?? '100%' }}
               >
                 <SlidePreviewRouter
                   slide={selectedSlide}

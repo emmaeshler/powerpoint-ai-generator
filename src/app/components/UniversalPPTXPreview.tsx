@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Slide } from '../types';
 import { generatePowerPointBlob } from '../utils/pptx-generator';
 
@@ -10,6 +10,9 @@ interface UniversalPPTXPreviewProps {
   isSelected?: boolean;
   onClick?: () => void;
 }
+
+// Height of Chrome's PDF viewer toolbar — included in the container so the full slide is visible
+export const PPTX_TOOLBAR_H = 52;
 
 export function UniversalPPTXPreview({ slides, format, isSelected, onClick }: UniversalPPTXPreviewProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -84,13 +87,28 @@ export function UniversalPPTXPreview({ slides, format, isSelected, onClick }: Un
     });
   }
 
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => setContainerWidth(entries[0].contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Height = slide height (16:9) + toolbar
+  const totalHeight = containerWidth ? containerWidth * 9 / 16 + PPTX_TOOLBAR_H : undefined;
+
   return (
     <div
+      ref={wrapperRef}
       onClick={onClick}
       className={`relative w-full overflow-hidden transition-all ${
         isSelected ? 'ring-2 ring-blue-500' : 'ring-1 ring-gray-200 hover:ring-gray-300'
       }`}
-      style={{ aspectRatio: '16 / 9', backgroundColor: '#f3f4f6' }}
+      style={{ height: totalHeight ?? 'auto', backgroundColor: '#f3f4f6' }}
     >
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -110,8 +128,8 @@ export function UniversalPPTXPreview({ slides, format, isSelected, onClick }: Un
       )}
       {!isLoading && pdfUrl && (
         <iframe
-          src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-          style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
+          src={pdfUrl}
+          style={{ width: '100%', height: '100%', border: 'none' }}
           title="Slide Preview"
         />
       )}

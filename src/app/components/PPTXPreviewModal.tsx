@@ -32,8 +32,39 @@ export function PPTXPreviewModal({ slides, isOpen, onClose, onConfirmDownload }:
       setMessage(null);
 
       try {
-        // Generate PPTX blob on client-side
-        const pptxBlob = await generatePowerPointBlob(slides);
+        // Check if any slides are Will's code-based
+        const hasWillsCode = slides.some(slide =>
+          slide.content?.pptxCode || slide.content?.rawOutput
+        );
+
+        let pptxBlob: Blob;
+
+        if (hasWillsCode) {
+          // For Will's code slides, generate on server
+          // For simplicity, just take the first code slide
+          const codeSlide = slides.find(s => s.content?.pptxCode);
+          if (!codeSlide?.content?.pptxCode) {
+            throw new Error('No code found in slide');
+          }
+
+          const response = await fetch('http://localhost:4000/export-pptxgen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code: codeSlide.content.pptxCode,
+              fileName: 'preview.pptx'
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error('Server export failed');
+          }
+
+          pptxBlob = await response.blob();
+        } else {
+          // Generate PPTX blob on client-side for Emma's format
+          pptxBlob = await generatePowerPointBlob(slides);
+        }
 
         // Convert blob to base64
         const base64 = await blobToBase64(pptxBlob);
