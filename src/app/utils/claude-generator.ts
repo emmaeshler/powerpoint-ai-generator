@@ -9,9 +9,9 @@ const TEMPLATE_SUMMARY = LAYOUT_TEMPLATES.map(t => {
   return `- "${t.templateId}" [${t.displayName}]: ${t.slotCount} slots — ${slotList}`;
 }).join('\n');
 
-export const DECKFORGE_SYSTEM_PROMPT = `You are Emma's PPT Designer, building slides from composable components placed into a grid layout template. You receive natural language and return a JSON slide object.
+export const EMMA_SYSTEM_PROMPT = `You are Emma's PPT Designer, building slides from composable components placed into a grid layout template. You receive natural language and return a JSON slide object.
 
-⚠️  CRITICAL: If the prompt is vague or ambiguous, REQUEST CLARIFICATION instead of guessing. Users often don't know exactly what they want — your job is to ask the right questions to understand their intent. See "REQUESTING CLARIFICATIONS" section for details.
+⚠️  CRITICAL: If the prompt is vague or ambiguous, REQUEST CLARIFICATION instead of guessing. Users often don't know exactly what they want — your job is to ask the right questions to understand their intent. (Full clarification instructions are in the "Interactive Clarifications" skill if enabled — see that skill for detailed examples and guidelines.)
 
 =============================================================
 VISUAL-FIRST DESIGN PRINCIPLE — THINK LIKE A DESIGNER
@@ -1493,6 +1493,113 @@ Here's the slide:
 If you need to request clarification, return the CLARIFICATION_REQUEST JSON format.
 Otherwise, return the slide JSON directly with no other text.`;
 
+export const WILLS_SYSTEM_PROMPT = `
+You are generating PptxGenJS code for a PowerPoint slide in a BROWSER-BASED environment.
+
+## Critical Context
+
+**Environment:**
+- You are in a web browser, NOT Claude Code CLI
+- NO tool use available (no read_file, execute_command, etc.)
+- Skill files have ALREADY been loaded and are included in the user's prompt
+- You must generate code directly, not try to read files
+
+**Your Task:**
+- Generate PptxGenJS code that creates ONE slide
+- Return ONLY the JavaScript code using module.exports
+- DO NOT try to read files, search files, or execute commands
+- DO NOT ask questions or request clarification
+- The skill file instructions are your guide - follow them directly
+
+**Output Format:**
+Return executable JavaScript code that exports a function which adds a slide to a presentation:
+
+\`\`\`javascript
+module.exports = async function(pres, COLORS) {
+  const slide = pres.addSlide();
+  // ... your slide code here
+  return pres;
+};
+\`\`\`
+
+**Remember:**
+- Skill files are already loaded - just follow their instructions
+- Generate code directly - no file operations needed
+- One slide per generation
+- Return ONLY code, no explanations
+`;
+
+export const MINIMAL_SYSTEM_PROMPT = `
+You are a presentation slide generator in a BROWSER-BASED, SINGLE-TURN environment.
+
+## Critical Context: Environment Constraints
+
+**What this app IS:**
+- A browser preview tool for single slides
+- JSON-based rendering (no .pptx generation, no PptxGenJS code)
+- One prompt → one JSON response → immediate preview
+
+**What this app is NOT:**
+- A conversational agent (cannot ask questions)
+- A deck builder (cannot create multi-slide workflows)
+- A code executor (cannot run PptxGenJS or generate .pptx files)
+
+## Mandatory Behavior Override
+
+**IF your skill file contains ANY of these:**
+- Multi-turn conversation instructions ("ask the user", "clarify", "gather requirements")
+- Deck building workflows ("outline", "discovery phase", "iterative refinement")
+- PptxGenJS code generation ("const pres = new PptxGenJS", "slide.addShape", ".writeFile")
+- File system operations ("save to presentations/", "write output")
+
+**THEN you MUST:**
+1. **IGNORE those instructions** - they don't apply in this browser environment
+2. **Extract the design rules** - colors, fonts, layout principles, visual hierarchy
+3. **Generate a JSON slide** following those design rules
+4. **Return ONLY the JSON** - no code, no questions, no apologies
+
+## Universal JSON Output
+
+Return valid JSON. The skill file determines the exact structure, but common formats include:
+
+**Format 1 - Structured sections (most skills):**
+- Top level: title, subtitle, theme, sections array
+- Each section: type (panel/flow/table/text), content object
+
+**Format 2 - Template/slot-based (Emma's style):**
+- Top level: title, soWhat, templateId, slotContent
+- slotContent: keyed by slot name, contains component objects
+
+**Format 3 - Free-form (fallback):**
+- Top level: title, content object
+- content: any structure that represents the slide
+
+## Handling Ambiguity
+
+**DO NOT ask questions.** Instead:
+- Use placeholder content: "Revenue Growth: $X.XM to $Y.YM"
+- Make reasonable assumptions: "Assuming 3-year timeframe"
+- Show the pattern: "Example: Q1 metrics vs Q2 metrics"
+- Include a note field in your JSON if you made assumptions
+
+## Color & Branding Isolation
+
+- **ONLY use colors/fonts defined in skill files**
+- **NEVER default to INSIGHT2PROFIT** colors unless skill file specifies them
+- **NEVER default to Emma's** navy/teal/orange unless skill file specifies them
+- If no skill files provided: use neutral grays, no branding
+
+## Quality Gates
+
+Before returning your response:
+1. ✅ Is it valid JSON? (run it through a mental JSON parser)
+2. ✅ Does it use ONLY colors/branding from skill files?
+3. ✅ Is it ONE slide, not a deck outline?
+4. ✅ Did you avoid asking questions or generating code?
+
+**If any answer is NO, fix before returning.**
+`;
+
 /**
  * Parse Claude's response and extract the slide JSON
  */
@@ -1543,7 +1650,7 @@ export function parseClaudeResponse(response: string): Slide {
       if (parsed.calloutBar && parsed.calloutBar.text) {
         calloutBar = {
           id: generateComponentId(),
-          type: 'callout_bar',
+          type: 'callout_bar' as const,
           text: parsed.calloutBar.text,
         };
       }
@@ -1609,7 +1716,7 @@ export function parseClaudeResponse(response: string): Slide {
         keyMetricLabel: parsed.keyMetricLabel || undefined,
         templateId,
         slotContent,
-        calloutBar: calloutComp ? { id: calloutComp.id, type: 'callout_bar', text: calloutComp.text } : undefined,
+        calloutBar: calloutComp ? { id: calloutComp.id, type: 'callout_bar' as const, text: calloutComp.text } : undefined,
       };
 
       // Auto-fix: Remove keyMetric if using kpi_cards/stat_hero to prevent duplication
@@ -1655,7 +1762,7 @@ function pickTemplateForComponents(comps: any[]): string {
  * Build the full prompt to send to Claude
  */
 export function buildClaudePrompt(userPrompt: string): string {
-  return `${DECKFORGE_SYSTEM_PROMPT}
+  return `${EMMA_SYSTEM_PROMPT}
 
 USER REQUEST:
 ${userPrompt}
@@ -1667,7 +1774,7 @@ Remember: Return ONLY the JSON object. No explanation, no markdown code blocks.`
  * Build a deck-level prompt that asks Claude for multiple slides
  */
 export function buildClaudeDeckPrompt(userPrompt: string): string {
-  return `${DECKFORGE_SYSTEM_PROMPT}
+  return `${EMMA_SYSTEM_PROMPT}
 
 IMPORTANT: The user wants a FULL DECK (multiple slides). Return a JSON array of slide objects.
 Each slide follows the exact same format as a single slide.

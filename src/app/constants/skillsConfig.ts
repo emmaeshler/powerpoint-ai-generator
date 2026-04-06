@@ -45,16 +45,51 @@ export const SKILLS_CONFIG: SkillsConfig = {
       bundleId: 'emma-bundle',
     },
     {
+      id: 'branded-pptx-slide',
+      label: "Will's Slide Builder (PFP)",
+      description: 'Single slide generation with INSIGHT/PFP branding - panels, flows, tables',
+      file: 'wills-slide-design.md',
+      bundleId: 'wills-bundle',
+    },
+    {
       id: 'branded-pptx-deck',
-      label: 'Branded PowerPoint Deck Builder',
-      description: 'Full deck orchestration — discovery, outlining, parallel slide generation, and assembly into .pptx',
+      label: "Will's Deck Builder (PFP)",
+      description: 'Full deck orchestration — discovery, outlining, parallel slide generation',
       file: '~/.claude/skills/branded-pptx-deck/SKILL.md',
-      bundleId: 'pfp-bundle',
+      bundleId: 'wills-bundle',
       isPublic: true,
       repoUrl: 'https://github.com/PRICE-FOR-PROFIT/poc-branded-pptx-deck',
     },
+    {
+      id: 'narrative-slide',
+      label: 'Narrative Slide Skill (Test)',
+      description: 'Test skill - narrative sections structure, no templates',
+      file: 'narrative-slide-skill.md',
+      bundleId: 'test-bundle',
+    },
+    {
+      id: 'clarification-questions',
+      label: 'Interactive Clarifications',
+      description: 'Ask follow-up questions when prompts are vague or ambiguous - works with any bundle',
+      file: 'clarification-questions.md',
+      bundleId: 'universal-bundle',
+    },
   ],
   bundles: [
+    {
+      id: 'universal-bundle',
+      name: 'Universal Bundle',
+      owner: 'Everyone',
+      description: 'Skills that work alongside any bundle',
+      skills: ['clarification-questions'],
+      color: '#F59E0B',
+      capabilities: {
+        layouts: false,
+        referenceSlides: false,
+        audience: true,
+        components: false,
+      },
+    },
     {
       id: 'emma-bundle',
       name: "Emma's Bundle",
@@ -62,16 +97,43 @@ export const SKILLS_CONFIG: SkillsConfig = {
       description: 'Core design system and layout rules',
       skills: ['design-system', 'brand-guide', 'reference-rules', 'composition-engine', 'layout-templates', 'figma-updates'],
       isDefault: true,
-      color: '#1B6B7B',
+      color: '#0EA5E9',
+      defaultPreview: 'pptx',
+      capabilities: {
+        layouts: true,           // Has layout-templates.json
+        referenceSlides: true,   // Has reference-rules.md
+        audience: true,          // Can tailor to audiences
+        components: true,        // Has full component library
+      },
     },
     {
-      id: 'pfp-bundle',
-      name: 'PRICE-FOR-PROFIT',
-      owner: 'PFP Team',
-      description: 'Full presentation deck creation with narrative flow',
-      skills: ['branded-pptx-deck'],
+      id: 'test-bundle',
+      name: 'Test Bundle',
+      owner: 'Testing',
+      description: 'Test narrative slide structure - no templates',
+      skills: ['narrative-slide'],
+      color: '#A855F7',
+      capabilities: {
+        layouts: false,
+        referenceSlides: false,
+        audience: false,
+        components: false,
+      },
+    },
+    {
+      id: 'wills-bundle',
+      name: "Will's Bundle (PFP)",
+      owner: 'Will / PRICE-FOR-PROFIT',
+      description: 'INSIGHT/PFP branding - slide builder for single slides, deck builder for full presentations',
+      skills: ['branded-pptx-slide', 'branded-pptx-deck'],
       repoUrl: 'https://github.com/PRICE-FOR-PROFIT/poc-branded-pptx-deck',
-      color: '#E8610A',
+      color: '#10B981',
+      capabilities: {
+        layouts: true,           // Supports panels, flows, tables
+        referenceSlides: false,  // Uses its own structure
+        audience: true,          // Business/executive focus
+        components: true,        // Icons, panels, flows
+      },
     },
   ],
 };

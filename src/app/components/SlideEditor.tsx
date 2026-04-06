@@ -1,4 +1,6 @@
-import { Plus, Trash2, LayoutGrid, X, ChevronDown } from 'lucide-react';
+'use client';
+
+import { Plus, Trash2, LayoutGrid, X, ChevronDown, Copy, Check } from 'lucide-react';
 import { Slide, SlideComponent, ComponentType, generateComponentId, COMPONENT_META, BrandColor, CalloutBarComponent } from '../types';
 import { COMPONENT_PALETTE, MAX_CONSTRAINTS } from '../constants';
 import { LAYOUT_TEMPLATES, getTemplate, TEMPLATE_CATEGORIES, LayoutTemplate } from '../layout-templates';
@@ -177,11 +179,142 @@ interface SlideEditorProps {
 export function SlideEditor({ slide, onUpdateSlide }: SlideEditorProps) {
   const [showLayoutPicker, setShowLayoutPicker] = useState(false);
   const [swapSource, setSwapSource] = useState<string | null>(null);
+  const [copiedPromptEmma, setCopiedPromptEmma] = useState(false);
+  const [showJson, setShowJson] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+
+  const copyPromptEmma = () => {
+    if (slide?.prompt) {
+      navigator.clipboard.writeText(slide.prompt);
+      setCopiedPromptEmma(true);
+      setTimeout(() => setCopiedPromptEmma(false), 2000);
+    }
+  };
+
+  const copyPrompt = () => {
+    if (slide?.prompt) {
+      navigator.clipboard.writeText(slide.prompt);
+      setCopiedPrompt(true);
+      setTimeout(() => setCopiedPrompt(false), 2000);
+    }
+  };
 
   if (!slide) {
     return (
       <div className="h-full flex items-center justify-center bg-gray-50">
         <p className="text-sm text-gray-400">No slide selected</p>
+      </div>
+    );
+  }
+
+  // Handle non-Emma slides (no template/slot structure)
+  if (!slide.templateId || !slide.slotContent) {
+    return (
+      <div className="h-full overflow-y-auto bg-white border-l border-gray-200 p-5">
+        <div className="space-y-4">
+          {/* Bundle Badge */}
+          {slide.bundleId && (
+            <div className="flex items-center gap-2 pb-3 border-b">
+              <span className="text-xs text-gray-600">Using:</span>
+              <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-semibold">
+                {slide.bundleId.replace('-bundle', '')}
+              </span>
+            </div>
+          )}
+
+          {/* Guide Section */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h3 className="text-sm font-semibold mb-2" style={{ color: '#1E40AF' }}>
+              💡 Custom Renderer Guide
+            </h3>
+            <p className="text-xs mb-3" style={{ color: '#1E40AF' }}>
+              This slide uses a custom JSON structure. You can create a custom editor panel for it!
+            </p>
+
+            <div className="space-y-2 text-xs" style={{ color: '#1E40AF' }}>
+              <div>
+                <strong>📍 Where to add your editor:</strong>
+                <code className="block mt-1 px-2 py-1 bg-white rounded text-[10px] font-mono">
+                  src/app/components/SlideEditor.tsx
+                </code>
+              </div>
+
+              <div>
+                <strong>🔍 See Emma's implementation:</strong>
+                <p className="mt-1 text-[11px]">
+                  Switch to Emma's Bundle to see how she built a full editor with templates, slots, and components.
+                  You can build something similar for your own structure!
+                </p>
+              </div>
+
+              <div>
+                <strong>📦 Your slide structure:</strong>
+                <p className="mt-1 text-[11px]">
+                  Check the JSON below to see your slide's data structure. Build form fields to edit these values.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="space-y-2">
+            <button
+              onClick={() => setShowJson(!showJson)}
+              className="w-full flex items-center justify-between px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-xs font-medium transition-colors"
+            >
+              <span>{showJson ? '📋 Hide' : '📋 Show'} JSON Structure</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showJson ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showJson && slide.content && (
+              <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-700 font-mono whitespace-pre-wrap max-h-80 overflow-y-auto">
+                {typeof slide.content === 'string' ? slide.content : JSON.stringify(slide.content, null, 2)}
+              </div>
+            )}
+          </div>
+
+          {/* Prompt Reference */}
+          {slide.prompt && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold text-gray-700">📝 Original Prompt</h4>
+                <button
+                  onClick={copyPrompt}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border hover:bg-gray-100 transition-colors"
+                  style={{
+                    borderColor: copiedPrompt ? '#10B981' : '#D1D5DB',
+                    color: copiedPrompt ? '#10B981' : '#6B7280'
+                  }}
+                >
+                  {copiedPrompt ? (
+                    <>
+                      <Check className="w-3 h-3" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      Copy
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-600">
+                {slide.prompt}
+              </div>
+            </div>
+          )}
+
+          {/* Helper Links */}
+          <div className="pt-3 border-t space-y-2 text-[10px] text-gray-500">
+            <p>
+              <strong>💡 Tip:</strong> The preview panel (left) already renders your slide. This panel is for editing.
+            </p>
+            <p>
+              <strong>🎯 Next step:</strong> Add interactive form fields here to let users edit your slide's content directly.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -326,7 +459,29 @@ export function SlideEditor({ slide, onUpdateSlide }: SlideEditorProps) {
           {/* Original Prompt - Read Only */}
           {slide.prompt && (
             <div>
-              <Label className="text-xs text-gray-500">Original Prompt</Label>
+              <div className="flex items-center justify-between mb-1">
+                <Label className="text-xs text-gray-500">Original Prompt</Label>
+                <button
+                  onClick={copyPromptEmma}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border hover:bg-gray-100 transition-colors"
+                  style={{
+                    borderColor: copiedPromptEmma ? '#10B981' : '#D1D5DB',
+                    color: copiedPromptEmma ? '#10B981' : '#6B7280'
+                  }}
+                >
+                  {copiedPromptEmma ? (
+                    <>
+                      <Check className="w-3 h-3" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      Copy
+                    </>
+                  )}
+                </button>
+              </div>
               <span className="text-[10px] text-gray-400 block mb-1">The prompt used to generate this slide</span>
               <textarea
                 value={slide.prompt}

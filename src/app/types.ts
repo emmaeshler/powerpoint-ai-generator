@@ -279,6 +279,8 @@ export type SlideComponent =
 
 // ─── SLIDE ────────────────────────────────────────────────────
 
+export type SlideRenderType = 'emma' | 'pfp' | 'generic';
+
 export interface Slide {
   id: string;
   title: string;
@@ -288,11 +290,22 @@ export interface Slide {
   keyMetric?: string;                            // key numeric takeaway (e.g., "-2M ha/yr", "$2.4M")
   keyMetricLabel?: string;                       // context for the metric (e.g., "Reduction Since 2018")
   prompt?: string;                               // original prompt used to generate this slide
-  templateId: string;                            // layout template id
-  slotContent: Record<string, SlideComponent>; // slot_id → component
-  calloutBar?: CalloutBarComponent;            // optional footer callout (not in grid)
-  deckGroupId?: string;                        // groups slides generated as part of a deck
-  deckGroupLabel?: string;                     // display label for the deck group
+
+  // Bundle and rendering
+  bundleId?: string;                             // which skill bundle generated this slide
+  renderType?: SlideRenderType;                  // which renderer to use (defaults to 'emma' for backward compat)
+
+  // Emma-specific structure (optional for other bundles)
+  templateId?: string;                           // layout template id (Emma's system)
+  slotContent?: Record<string, SlideComponent>;  // slot_id → component (Emma's system)
+  calloutBar?: CalloutBarComponent;              // optional footer callout (Emma's system)
+
+  // Generic content field (for non-Emma bundles)
+  content?: any;                                 // flexible content structure defined by bundle
+
+  // Deck grouping
+  deckGroupId?: string;                          // groups slides generated as part of a deck
+  deckGroupLabel?: string;                       // display label for the deck group
 }
 
 // ─── DECK THEME ───────────────────────────────────────────────
@@ -334,7 +347,7 @@ export function generateSlideId(): string {
 
 /** Get all components from a slide (slot content + callout bar) as a flat array */
 export function getSlideComponents(slide: Slide): SlideComponent[] {
-  const comps = Object.values(slide.slotContent);
+  const comps = slide.slotContent ? Object.values(slide.slotContent) : [];
   if (slide.calloutBar) comps.push(slide.calloutBar);
   return comps;
 }

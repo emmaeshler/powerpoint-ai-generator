@@ -46,3 +46,6 @@ Thumbs.db
 .cache/
 .vercel
 .env*.local
+
+# Git workflow notes
+.git-override-notes/
