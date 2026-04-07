@@ -146,7 +146,7 @@ async function loadSkillFiles(prompt) {
         // Handle ~ paths and relative paths
         const expandedPath = filePath.startsWith('~')
           ? path.join(process.env.HOME, filePath.slice(1))
-          : path.join('/Users/emmaeshler/Documents/Powerpoint-App-main/src/imports/pasted_text/', filePath);
+          : path.join(path.join(GIT_REPO_PATH, 'src/imports/pasted_text/'), filePath);
 
         const content = await readFile(expandedPath, 'utf-8');
         console.log(`  ✅ Loaded: ${filePath} (${(content.length / 1024).toFixed(1)}KB)`);
@@ -285,6 +285,7 @@ app.post('/mcp', async (req, res) => {
   const { prompt, system } = params.arguments;
 
   console.log(`📝 Prompt length: ${(prompt.length / 1024).toFixed(1)}KB`);
+  console.log(`📝 Prompt preview (first 300 chars):\n${prompt.substring(0, 300)}...`);
   if (system) {
     console.log(`📋 System prompt: ${(system.length / 1024).toFixed(1)}KB`);
     console.log(`📋 System prompt preview: ${system.substring(0, 150)}...`);
@@ -294,6 +295,7 @@ app.post('/mcp', async (req, res) => {
     // Load skill files from disk
     console.log(`\n🔍 Parsing prompt for skill file references...`);
     const enhancedPrompt = await loadSkillFiles(prompt);
+    console.log(`📝 Enhanced prompt length: ${(enhancedPrompt.length / 1024).toFixed(1)}KB`);
 
     // Call Azure Foundry with enhanced prompt
     const result = await callClaudeFoundry(enhancedPrompt, system);
@@ -320,10 +322,24 @@ app.post('/mcp', async (req, res) => {
 
 // Health check endpoint — includes credential status so the UI can guide setup
 app.get('/health', (req, res) => {
+  // Check if Will's skill files exist
+  const willsSkillPath = path.join(process.env.HOME || os.homedir(), '.claude/skills/poc-branded-pptx-slide/SKILL.md');
+  const willsSlideLibPath = path.join(process.env.HOME || os.homedir(), '.claude/skills/poc-branded-pptx-slide/slide-lib.js');
+
+  const skillsStatus = {
+    'wills-bundle': {
+      available: existsSync(willsSkillPath) && existsSync(willsSlideLibPath),
+      skillFile: existsSync(willsSkillPath),
+      slideLib: existsSync(willsSlideLibPath),
+      path: willsSkillPath
+    }
+  };
+
   res.json({
     status: 'ok',
     uptime: process.uptime(),
     credentials: credentialStatus,
+    skills: skillsStatus,
   });
 });
 
@@ -362,10 +378,12 @@ app.post('/setup-credentials', async (req, res) => {
 });
 
 // Git workflow endpoints
+const GIT_REPO_PATH = __dirname; // Use current project directory
+
 app.get('/git/current-branch', async (req, res) => {
   try {
     const { stdout } = await execAsync('git branch --show-current', {
-      cwd: '/Users/emmaeshler/Documents/Powerpoint-App-main'
+      cwd: GIT_REPO_PATH
     });
     res.json({ branch: stdout.trim() });
   } catch (error) {
@@ -375,7 +393,7 @@ app.get('/git/current-branch', async (req, res) => {
 
 app.get('/git/branches', async (req, res) => {
   try {
-    const cwd = '/Users/emmaeshler/Documents/Powerpoint-App-main';
+    const cwd = GIT_REPO_PATH;
 
     // Fetch latest from remote (don't fail if it errors)
     try {
@@ -397,11 +415,76 @@ app.get('/git/branches', async (req, res) => {
   }
 });
 
+app.get('/git/auth-status', async (req, res) => {
+  try {
+    const status = {
+      gitConfigured: false,
+      gitUser: null,
+      gitEmail: null,
+      ghCliInstalled: false,
+      ghCliAuthenticated: false,
+      sshConfigured: false,
+      canPush: false
+    };
+
+    // Check git identity
+    try {
+      const { stdout: userName } = await execAsync('git config user.name', { cwd: GIT_REPO_PATH });
+      const { stdout: userEmail } = await execAsync('git config user.email', { cwd: GIT_REPO_PATH });
+      if (userName.trim() && userEmail.trim()) {
+        status.gitConfigured = true;
+        status.gitUser = userName.trim();
+        status.gitEmail = userEmail.trim();
+      }
+    } catch (e) {
+      // Git not configured
+    }
+
+    // Check GitHub CLI
+    try {
+      await execAsync('which gh');
+      status.ghCliInstalled = true;
+
+      try {
+        await execAsync('gh auth status');
+        status.ghCliAuthenticated = true;
+        status.canPush = true;
+      } catch (e) {
+        // gh CLI installed but not authenticated
+      }
+    } catch (e) {
+      // gh CLI not installed
+    }
+
+    // Check SSH keys
+    try {
+      const sshDir = path.join(os.homedir(), '.ssh');
+      const sshKeys = ['id_rsa', 'id_ed25519', 'id_ecdsa'];
+      for (const key of sshKeys) {
+        if (existsSync(path.join(sshDir, key))) {
+          status.sshConfigured = true;
+          // If SSH is configured, we can potentially push
+          if (status.gitConfigured) {
+            status.canPush = true;
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      // SSH check failed
+    }
+
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/git/create-branch', async (req, res) => {
   try {
     const { branchName } = req.body;
     await execAsync(`git checkout -b ${branchName}`, {
-      cwd: '/Users/emmaeshler/Documents/Powerpoint-App-main'
+      cwd: GIT_REPO_PATH
     });
     res.json({ success: true });
   } catch (error) {
@@ -415,7 +498,7 @@ app.post('/git/switch-branch', async (req, res) => {
     console.log(`🔀 Switching to branch: ${branchName}`);
 
     const { stdout, stderr } = await execAsync(`git checkout ${branchName}`, {
-      cwd: '/Users/emmaeshler/Documents/Powerpoint-App-main'
+      cwd: GIT_REPO_PATH
     });
 
     console.log(`  ✅ Branch switched successfully`);
@@ -434,7 +517,7 @@ app.post('/git/switch-branch', async (req, res) => {
 app.post('/git/stage-all', async (req, res) => {
   try {
     await execAsync('git add -A', {
-      cwd: '/Users/emmaeshler/Documents/Powerpoint-App-main'
+      cwd: GIT_REPO_PATH
     });
     res.json({ success: true });
   } catch (error) {
@@ -446,7 +529,7 @@ app.post('/git/commit', async (req, res) => {
   try {
     const { message } = req.body;
     await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, {
-      cwd: '/Users/emmaeshler/Documents/Powerpoint-App-main'
+      cwd: GIT_REPO_PATH
     });
     res.json({ success: true });
   } catch (error) {
@@ -458,7 +541,7 @@ app.post('/git/push', async (req, res) => {
   try {
     const { branch } = req.body;
     await execAsync(`git push -u origin ${branch}`, {
-      cwd: '/Users/emmaeshler/Documents/Powerpoint-App-main'
+      cwd: GIT_REPO_PATH
     });
     res.json({ success: true });
   } catch (error) {
@@ -469,7 +552,7 @@ app.post('/git/push', async (req, res) => {
 app.post('/git/save-override-note', async (req, res) => {
   try {
     const { branch, note, timestamp } = req.body;
-    const notesDir = '/Users/emmaeshler/Documents/Powerpoint-App-main/.git-override-notes';
+    const notesDir = path.join(GIT_REPO_PATH, '.git-override-notes');
 
     if (!existsSync(notesDir)) {
       await mkdir(notesDir, { recursive: true });
@@ -486,7 +569,7 @@ app.post('/git/save-override-note', async (req, res) => {
 
 app.get('/git/summary', async (req, res) => {
   try {
-    const cwd = '/Users/emmaeshler/Documents/Powerpoint-App-main';
+    const cwd = 'GIT_REPO_PATH';
 
     // Get current branch
     const { stdout: branchOut } = await execAsync('git branch --show-current', { cwd });

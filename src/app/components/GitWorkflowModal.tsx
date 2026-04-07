@@ -7,7 +7,7 @@ import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { GitBranch, GitCommit, Upload, RefreshCw, AlertTriangle, Plus, ArrowLeftRight, Check, X as XIcon } from 'lucide-react';
+import { GitBranch, GitCommit, Upload, RefreshCw, AlertTriangle, Plus, ArrowLeftRight, Check, X as XIcon, ShieldAlert, Key } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface GitWorkflowModalProps {
@@ -24,6 +24,16 @@ interface ChangesSummary {
   other: string[];
 }
 
+interface GitAuthStatus {
+  gitConfigured: boolean;
+  gitUser: string | null;
+  gitEmail: string | null;
+  ghCliInstalled: boolean;
+  ghCliAuthenticated: boolean;
+  sshConfigured: boolean;
+  canPush: boolean;
+}
+
 export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
   const [currentBranch, setCurrentBranch] = useState<string>('');
   const [allBranches, setAllBranches] = useState<string[]>([]);
@@ -36,12 +46,14 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
   const [changesSummary, setChangesSummary] = useState<ChangesSummary | null>(null);
   const [showNewBranchInput, setShowNewBranchInput] = useState(false);
   const [showBranchSelector, setShowBranchSelector] = useState(false);
+  const [authStatus, setAuthStatus] = useState<GitAuthStatus | null>(null);
 
   // Fetch current git status
   useEffect(() => {
     if (isOpen) {
       fetchGitStatus();
       fetchChangesSummary();
+      fetchAuthStatus();
     }
   }, [isOpen]);
 
@@ -89,6 +101,16 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
       }
     } catch (error) {
       console.error('Failed to fetch changes summary:', error);
+    }
+  }
+
+  async function fetchAuthStatus() {
+    try {
+      const response = await fetch('http://localhost:4000/git/auth-status');
+      const data = await response.json();
+      setAuthStatus(data);
+    } catch (error) {
+      console.error('Failed to fetch auth status:', error);
     }
   }
 
@@ -246,6 +268,125 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-2">
+            {/* GitHub Authentication Status */}
+            {authStatus && !authStatus.canPush && (
+              <div className="rounded-lg p-4" style={{ backgroundColor: '#FEF3C7', border: '1px solid #FDE68A' }}>
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: '#FEE2E2' }}
+                  >
+                    <ShieldAlert className="w-4 h-4" style={{ color: '#DC2626' }} />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-semibold mb-2" style={{ color: '#92400E' }}>
+                      GitHub Authentication Required
+                    </h4>
+                    <p className="text-xs mb-3" style={{ color: '#92400E' }}>
+                      You need to authenticate with GitHub to push changes. Choose one of the methods below:
+                    </p>
+
+                    {/* Git Config Status */}
+                    {!authStatus.gitConfigured && (
+                      <div className="mb-3 p-2.5 rounded" style={{ backgroundColor: '#FEE2E2', border: '1px solid #FECACA' }}>
+                        <p className="text-xs font-medium mb-1.5" style={{ color: '#991B1B' }}>
+                          1. Configure Git Identity
+                        </p>
+                        <code
+                          className="block text-[10px] font-mono px-2 py-1.5 rounded mb-1"
+                          style={{ backgroundColor: '#FFFFFF', color: '#991B1B' }}
+                        >
+                          git config --global user.name "Your Name"
+                        </code>
+                        <code
+                          className="block text-[10px] font-mono px-2 py-1.5 rounded"
+                          style={{ backgroundColor: '#FFFFFF', color: '#991B1B' }}
+                        >
+                          git config --global user.email "your.email@example.com"
+                        </code>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <div className="p-2.5 rounded" style={{ backgroundColor: '#DBEAFE', border: '1px solid #BFDBFE' }}>
+                        <p className="text-xs font-medium mb-1.5" style={{ color: '#1E40AF' }}>
+                          Option 1: GitHub CLI (Recommended)
+                        </p>
+                        <div className="space-y-1">
+                          {!authStatus.ghCliInstalled ? (
+                            <code
+                              className="block text-[10px] font-mono px-2 py-1.5 rounded"
+                              style={{ backgroundColor: '#FFFFFF', color: '#1E40AF' }}
+                            >
+                              brew install gh && gh auth login
+                            </code>
+                          ) : !authStatus.ghCliAuthenticated ? (
+                            <code
+                              className="block text-[10px] font-mono px-2 py-1.5 rounded"
+                              style={{ backgroundColor: '#FFFFFF', color: '#1E40AF' }}
+                            >
+                              gh auth login
+                            </code>
+                          ) : (
+                            <p className="text-xs flex items-center gap-1.5" style={{ color: '#166534' }}>
+                              <Check className="w-3 h-3" /> GitHub CLI authenticated
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded" style={{ backgroundColor: '#F3E8FF', border: '1px solid #E9D5FF' }}>
+                        <p className="text-xs font-medium mb-1.5" style={{ color: '#6B21A8' }}>
+                          Option 2: SSH Key
+                        </p>
+                        {!authStatus.sshConfigured ? (
+                          <div className="space-y-1 text-[10px]" style={{ color: '#6B21A8' }}>
+                            <p>1. Generate key:</p>
+                            <code
+                              className="block font-mono px-2 py-1.5 rounded mb-1"
+                              style={{ backgroundColor: '#FFFFFF', color: '#6B21A8' }}
+                            >
+                              ssh-keygen -t ed25519 -C "your.email@example.com"
+                            </code>
+                            <p>2. Add to GitHub: <a href="https://github.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline">github.com/settings/keys</a></p>
+                          </div>
+                        ) : (
+                          <p className="text-xs flex items-center gap-1.5" style={{ color: '#166534' }}>
+                            <Check className="w-3 h-3" /> SSH key configured
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => fetchAuthStatus()}
+                      className="mt-3 text-xs px-3 py-1.5 rounded transition-colors"
+                      style={{ backgroundColor: '#00446A', color: '#FFFFFF' }}
+                    >
+                      <RefreshCw className="w-3 h-3 inline mr-1.5" />
+                      Check Again
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {authStatus && authStatus.canPush && (
+              <div className="rounded-lg p-3" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+                <div className="flex items-center gap-2">
+                  <Check className="w-4 h-4" style={{ color: '#166534' }} />
+                  <p className="text-xs font-medium" style={{ color: '#166534' }}>
+                    GitHub authenticated
+                    {authStatus.gitUser && (
+                      <span className="ml-2 text-[10px] opacity-80">
+                        ({authStatus.gitUser})
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Current Branch with Actions */}
             <div className="rounded-lg p-3" style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
               <div className="flex items-center justify-between">
@@ -494,9 +635,10 @@ export function GitWorkflowModal({ isOpen, onClose }: GitWorkflowModalProps) {
           <div className="flex-shrink-0 border-t pt-4 flex gap-2" style={{ borderColor: '#E5E7EB' }}>
             <Button
               onClick={handleCommitAndPush}
-              disabled={isLoading || !commitMessage.trim() || !changesSummary?.hasChanges}
+              disabled={isLoading || !commitMessage.trim() || !changesSummary?.hasChanges || (authStatus && !authStatus.canPush)}
               className="flex-1 text-white"
               style={{ backgroundColor: '#00446A' }}
+              title={authStatus && !authStatus.canPush ? 'Please authenticate with GitHub first' : ''}
             >
               {isLoading ? (
                 <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
