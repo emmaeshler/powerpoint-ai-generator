@@ -1,229 +1,153 @@
 #!/bin/bash
 
-# ============================================================
-#  Emma's Awesome PPT Generator – PowerPoint App Setup Script
-#  Run this once after cloning the repo to get up and running.
-# ============================================================
+# =============================================================================
+# Emma's PowerPoint AI Generator - Quick Setup
+# Assumes: Azure CLI installed and authenticated
+# =============================================================================
 
-set -e  # Exit on any error
+set -e
 
-# ── Colors & helpers ─────────────────────────────────────────
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
-
-info()    { echo -e "${CYAN}ℹ ${NC} $1"; }
-success() { echo -e "${GREEN}✔ ${NC} $1"; }
-warn()    { echo -e "${YELLOW}⚠ ${NC} $1"; }
-fail()    { echo -e "${RED}✖ ${NC} $1"; exit 1; }
-header()  { echo -e "\n${BOLD}$1${NC}\n"; }
-
-# ── Welcome ──────────────────────────────────────────────────
-clear
-echo ""
-echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║  Emma's Awesome PPT Generator – Setup       ║${NC}"
-echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "  This script will help you set up the app locally."
-echo -e "  It will check prerequisites, install dependencies,"
-echo -e "  and start the development server for you."
-echo ""
-
-# ── Step 1: Check prerequisites ──────────────────────────────
-header "Step 1 of 4 — Checking prerequisites..."
-
-# Check Node.js
-if command -v node &> /dev/null; then
-    NODE_VERSION=$(node -v)
-    success "Node.js found: $NODE_VERSION"
-
-    # Check minimum version (need >= 18)
-    NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/v//' | cut -d. -f1)
-    if [ "$NODE_MAJOR" -lt 18 ]; then
-        fail "Node.js 18+ is required. You have $NODE_VERSION.\n   Download the latest LTS from: https://nodejs.org"
-    fi
-else
-    fail "Node.js is not installed.\n   Download it from: https://nodejs.org (LTS version recommended)"
-fi
-
-# Check npm
-if command -v npm &> /dev/null; then
-    NPM_VERSION=$(npm -v)
-    success "npm found: v$NPM_VERSION"
-else
-    fail "npm is not installed. It usually comes with Node.js.\n   Reinstall Node.js from: https://nodejs.org"
-fi
-
-# Check git (optional but helpful)
-if command -v git &> /dev/null; then
-    success "git found: $(git --version | cut -d' ' -f3)"
-else
-    warn "git not found – not required to run, but recommended."
-fi
+BLUE='\033[0;34m'
+NC='\033[0m'
 
 echo ""
-success "All prerequisites met!"
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║  Emma's PPT Generator - Quick Setup                     ║"
+echo "╚══════════════════════════════════════════════════════════╝"
+echo ""
 
-# ── Step 2: Install dependencies ─────────────────────────────
-header "Step 2 of 4 — Installing dependencies..."
+# 1. Install dependencies
+echo -e "${BLUE}▶ Installing dependencies...${NC}"
+[ ! -d "node_modules" ] && npm install --silent || true
+echo -e "${GREEN}✅ Dependencies ready${NC}"
+echo ""
 
-# Navigate to project root (wherever this script lives)
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
-info "Project directory: $SCRIPT_DIR"
-
-if [ -d "node_modules" ]; then
-    echo ""
-    read -p "   node_modules already exists. Reinstall? (y/N): " REINSTALL
-    if [[ "$REINSTALL" =~ ^[Yy]$ ]]; then
-        info "Removing old node_modules..."
-        rm -rf node_modules
-        info "Running npm install (this may take a minute)..."
-        npm install
+# 2. Verify Azure subscription
+echo -e "${BLUE}▶ Verifying Azure subscription...${NC}"
+if az account show &> /dev/null; then
+    CURRENT_SUB=$(az account show --query "name" -o tsv)
+    echo "  Current: $CURRENT_SUB"
+    if [ "$CURRENT_SUB" != "INSIGHT2PROFIT_PRODUCTION" ]; then
+        echo -e "${YELLOW}⚠️  Not on PRODUCTION subscription${NC}"
+        echo "  Run: az account set --name INSIGHT2PROFIT_PRODUCTION"
     else
-        info "Skipping install – using existing node_modules."
+        echo -e "${GREEN}✅ Correct subscription${NC}"
     fi
 else
-    info "Running npm install (this may take a minute)..."
-    npm install
+    echo -e "${YELLOW}⚠️  Not logged in to Azure${NC}"
+    echo "  Run: az login"
+fi
+echo ""
+
+# 3. Create .env
+echo -e "${BLUE}▶ Configuring .env...${NC}"
+if [ ! -f ".env" ]; then
+    cat > .env << 'EOF'
+FOUNDRY_TARGET_URI=https://aif-claude-code-prod-eastus2.openai.azure.com/anthropic/v1/messages?api-version=2023-06-01
+MODEL=claude-sonnet-4-5
+EOF
+    echo -e "${GREEN}✅ Created .env${NC}"
+else
+    echo -e "${GREEN}✅ .env exists${NC}"
+fi
+echo ""
+
+# 4. Install Will's skill files
+echo -e "${BLUE}▶ Installing Will's skill files...${NC}"
+SKILLS_DIR="$HOME/.claude/skills/poc-branded-pptx-slide"
+
+if [ -f "$SKILLS_DIR/SKILL.md" ] && [ -f "$SKILLS_DIR/slide-lib.js" ]; then
+    echo -e "${GREEN}✅ Skills already installed${NC}"
+else
+    mkdir -p "$SKILLS_DIR"
+
+    if [ -f "src/imports/pasted_text/wills-slide-design.md" ]; then
+        cp "src/imports/pasted_text/wills-slide-design.md" "$SKILLS_DIR/SKILL.md"
+        echo "  ✓ Copied SKILL.md"
+    fi
+
+    if [ ! -f "$SKILLS_DIR/slide-lib.js" ]; then
+        echo 'module.exports = { version: "1.0.0" };' > "$SKILLS_DIR/slide-lib.js"
+        echo "  ✓ Created slide-lib.js"
+    fi
+
+    echo -e "${GREEN}✅ Skills installed${NC}"
+fi
+echo ""
+
+# 5. Check GitHub authentication
+echo -e "${BLUE}▶ Checking GitHub authentication...${NC}"
+if git config user.name &> /dev/null && git config user.email &> /dev/null; then
+    echo -e "${GREEN}✅ Git configured${NC}"
+    echo "  Name: $(git config user.name)"
+    echo "  Email: $(git config user.email)"
+else
+    echo -e "${YELLOW}⚠️  Git not configured${NC}"
+    echo "  Set your identity:"
+    echo "    git config --global user.name \"Your Name\""
+    echo "    git config --global user.email \"your.email@example.com\""
 fi
 
-success "Dependencies installed!"
-
-# ── Step 3: Environment / credentials ────────────────────────
-header "Step 3 of 5 — Checking credentials..."
-
-if [ -f ".env" ] && grep -q "FOUNDRY_TARGET_URI=" .env && grep -q "MODEL=" .env; then
-    # Both vars present — check they're not empty
-    FOUNDRY_VAL=$(grep "^FOUNDRY_TARGET_URI=" .env | cut -d= -f2-)
-    MODEL_VAL=$(grep "^MODEL=" .env | cut -d= -f2-)
-    if [ -n "$FOUNDRY_VAL" ] && [ -n "$MODEL_VAL" ]; then
-        success ".env found with credentials — skipping setup."
+# Check if GitHub CLI is available and authenticated
+if command -v gh &> /dev/null; then
+    if gh auth status &> /dev/null; then
+        echo -e "${GREEN}✅ GitHub CLI authenticated${NC}"
+        echo "  Logged in as: $(gh api user --jq .login 2>/dev/null || echo 'unknown')"
     else
-        warn ".env exists but one or more values are blank."
-        warn "The bridge server will prompt you for them when it starts."
+        echo -e "${YELLOW}⚠️  GitHub CLI not authenticated${NC}"
+        echo "  To enable git push functionality, run:"
+        echo "    gh auth login"
     fi
 else
-    if [ ! -f ".env" ]; then
-        info "No .env file found — creating one from .env.example..."
-        cp .env.example .env
-        success "Created .env (from .env.example)."
-    fi
-    echo ""
-    warn "FOUNDRY_TARGET_URI and/or MODEL are not set in .env."
-    warn "The bridge server will ask for these interactively"
-    warn "the first time you run:  node claude-bridge-server.js"
-    echo ""
-    info "You can also fill them in now by editing .env directly."
-    echo ""
-
-    read -p "   Would you like to enter them now? (y/N): " ENTER_NOW
-    if [[ "$ENTER_NOW" =~ ^[Yy]$ ]]; then
-        read -p "   FOUNDRY_TARGET_URI (full Azure endpoint URL): " FOUNDRY_INPUT
-        read -p "   MODEL (e.g. claude-3-5-sonnet): " MODEL_INPUT
-
-        if [ -n "$FOUNDRY_INPUT" ]; then
-            # Replace or append
-            if grep -q "^FOUNDRY_TARGET_URI=" .env; then
-                sed -i.bak "s|^FOUNDRY_TARGET_URI=.*|FOUNDRY_TARGET_URI=$FOUNDRY_INPUT|" .env && rm -f .env.bak
-            else
-                echo "FOUNDRY_TARGET_URI=$FOUNDRY_INPUT" >> .env
-            fi
-        fi
-        if [ -n "$MODEL_INPUT" ]; then
-            if grep -q "^MODEL=" .env; then
-                sed -i.bak "s|^MODEL=.*|MODEL=$MODEL_INPUT|" .env && rm -f .env.bak
-            else
-                echo "MODEL=$MODEL_INPUT" >> .env
-            fi
-        fi
-        success "Credentials saved to .env."
-    fi
+    echo -e "${YELLOW}⚠️  GitHub CLI not installed${NC}"
+    echo "  For easy GitHub authentication, install it:"
+    echo "    brew install gh"
+    echo "  Then run: gh auth login"
 fi
 
-# ── Step 4: Azure authentication check ───────────────────────
-header "Step 4 of 5 — Checking Azure authentication..."
-
-if command -v az &> /dev/null; then
-    AZ_ACCOUNT=$(az account show 2>/dev/null | grep '"name"' | head -1 || true)
-    if [ -n "$AZ_ACCOUNT" ]; then
-        success "Azure CLI is authenticated."
-        info "$AZ_ACCOUNT"
-    else
-        warn "Azure CLI is installed but you are not logged in."
-        echo ""
-        read -p "   Run 'az login' now? (y/N): " AZ_LOGIN_NOW
-        if [[ "$AZ_LOGIN_NOW" =~ ^[Yy]$ ]]; then
-            az login
-        else
-            warn "Skipped — AI generation will fail until you run: az login"
-        fi
-    fi
+# Check if SSH key exists for GitHub
+if [ -f "$HOME/.ssh/id_rsa.pub" ] || [ -f "$HOME/.ssh/id_ed25519.pub" ]; then
+    echo -e "${GREEN}✅ SSH key found${NC}"
 else
-    warn "Azure CLI (az) not found. It's required for Azure authentication."
-    info "Install from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
-    info "Or set AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID in .env instead."
+    echo -e "${YELLOW}⚠️  No SSH key found${NC}"
+    echo "  To push to GitHub, either:"
+    echo "    - Use GitHub CLI: gh auth login"
+    echo "    - Or set up SSH: https://docs.github.com/en/authentication"
 fi
-
-# ── Step 5: Start the development server ─────────────────────
-header "Step 5 of 5 — Starting the development server..."
-
-echo -e "  ${YELLOW}Note:${NC} This starts the ${BOLD}web app only${NC}."
-echo -e "  You also need to start the ${BOLD}bridge server${NC} in a separate terminal:"
-echo ""
-echo -e "    ${CYAN}node claude-bridge-server.js${NC}"
-echo ""
-echo -e "  The bridge server handles AI generation. The app will show a"
-echo -e "  yellow warning banner if it's not running."
 echo ""
 
-# Find an available port (default 5173 for Vite)
-DEFAULT_PORT=5173
-
-# Check if the port is already in use
-if lsof -ti:$DEFAULT_PORT > /dev/null 2>&1; then
-    warn "Port $DEFAULT_PORT is already in use."
-    read -p "   Kill the existing process and continue? (y/N): " KILL_PORT
-    if [[ "$KILL_PORT" =~ ^[Yy]$ ]]; then
-        lsof -ti:$DEFAULT_PORT | xargs kill -9 2>/dev/null || true
-        sleep 1
-        success "Freed port $DEFAULT_PORT."
-    else
-        info "Will let Vite pick the next available port."
-    fi
+# 6. Check LibreOffice (optional - for PDF previews)
+echo -e "${BLUE}▶ Checking LibreOffice (optional)...${NC}"
+if [ -f "/Applications/LibreOffice.app/Contents/MacOS/soffice" ] || command -v soffice &> /dev/null; then
+    echo -e "${GREEN}✅ LibreOffice installed${NC}"
+    echo "  PDF previews enabled"
+else
+    echo -e "${YELLOW}⚠️  LibreOffice not installed (optional)${NC}"
+    echo "  Without LibreOffice:"
+    echo "    - Slides will generate fine"
+    echo "    - PDF previews won't work (you'll get PPTX download instead)"
+    echo "  To install:"
+    echo "    brew install --cask libreoffice"
 fi
-
-echo ""
-echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║  Starting Emma's Awesome PPT Generator...   ║${NC}"
-echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "  ${GREEN}▸ Local:${NC}   ${BOLD}http://localhost:$DEFAULT_PORT/${NC}"
-echo -e "  ${GREEN}▸ Network:${NC} Check your terminal output below"
-echo ""
-echo -e "  ${CYAN}Tip:${NC} Open the URL above in your browser."
-echo -e "  ${CYAN}Tip:${NC} Press ${BOLD}Ctrl+C${NC} to stop the server."
-echo ""
-echo -e "  ${YELLOW}Note:${NC} The app has a ${BOLD}30-minute inactivity timeout${NC}."
-echo -e "  ${YELLOW}     ${NC} You can also click ${BOLD}\"Stop Server\"${NC} in the app header."
-echo ""
-echo -e "  ${YELLOW}────────── Server logs below ──────────${NC}"
 echo ""
 
-# Clean up on exit
-cleanup() {
-    echo ""
-    echo -e "${YELLOW}Shutting down server...${NC}"
-    # Kill any background processes we spawned
-    jobs -p | xargs kill -9 2>/dev/null || true
-    echo -e "${GREEN}✔  Server stopped. Terminal is no longer exposed.${NC}"
-    echo ""
-}
-trap cleanup EXIT INT TERM
-
-# Start the Vite dev server (foreground so user sees output)
-npm run dev
+# Done
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║  ✅ Setup Complete                                       ║"
+echo "╚══════════════════════════════════════════════════════════╝"
+echo ""
+echo "Next steps:"
+echo "  1. Start app:  ./start-both.sh"
+echo "  2. Open:       http://localhost:5173"
+echo ""
+echo "To share your work on GitHub:"
+echo "  - Repository:  https://github.com/emmaeshler/powerpoint-ai-generator"
+echo "  - If warnings shown above, authenticate first:"
+echo "      gh auth login    (recommended)"
+echo "  - Then create a branch and push your changes"
+echo ""
+echo "Optional enhancements:"
+echo "  - PDF previews:  brew install --cask libreoffice"
+echo ""
